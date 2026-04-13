@@ -6,7 +6,15 @@ The graph includes:
 - elevation profile over distance (blue curve)
 - distance markers every N kilometers (vertical gridlines)
 - GPX waypoints as checkpoints on the route (red lines)
-- sideways ASCII kilometer labels (readable after rotating/flipping for stem mounting)
+- sideways ASCII kilometer labels (font-free, readable on printed strips)
+- exact kilometer labels for each checkpoint line
+- total route kilometer label on the end border line
+
+## Example output
+
+![Example screen](route_graph_example.png)
+
+Example generated from `ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx`.
 
 ## Build
 
@@ -25,7 +33,7 @@ cargo run --release -- \
   --km-label-scale 5
 ```
 
-Full-image mirror (everything is flipped left-right):
+Back-readable printing mode (flip full image left-right):
 
 ```bash
 cargo run --release -- \
@@ -62,7 +70,7 @@ cargo run --release -- \
 - `--km-step <N>`: kilometer guide line interval (default: `10`)
 - `--km-label-step <N>`: kilometer label interval (default: `25`)
 - `--km-label-scale <N>`: ASCII bitmap label scale, from `1` to `8` (default: `5`)
-- `--mirror`: flip the whole output image horizontally after rendering
+- `--mirror`: flip the whole output image horizontally after rendering (for back-readable printing)
 - `--checkpoint-filter <TEXT>`: only show waypoints whose names contain this text (case-insensitive)
 
 ## Notes
@@ -71,3 +79,4 @@ cargo run --release -- \
 - Distance is computed with haversine formula over track points.
 - Rendering avoids system font dependencies to prevent `FontUnavailable` errors.
 - Image dimensions default to a wide/low profile suitable for printing and rotating.
+- Checkpoint and kilometer labels are ASCII bitmap glyphs (no system font required).
