@@ -1,0 +1,13 @@
+# Mail needs its own TLS (not behind Cloudflare)
+mail.extragornax.fr autodiscover.extragornax.fr autoconfig.extragornax.fr {
+	reverse_proxy http://127.0.0.1:8080
+}
+
+# GPX and Kahoot are behind Cloudflare — accept plain HTTP
+http://gpx.extragornax.fr {
+	reverse_proxy http://149.202.68.234:3000
+}
+
+http://kahoot.extragornax.fr {
+	reverse_proxy http://149.202.68.234:3010
+}
