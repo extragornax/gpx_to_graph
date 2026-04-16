@@ -1,20 +1,26 @@
 # gpx_to_graph
 
-Small Rust CLI that reads a GPX file and generates a PNG graph for bike navigation.
+Small Rust CLI that reads a GPX file and generates a PNG elevation-profile graph for bike navigation.
 
-The graph includes:
-- elevation profile over distance (blue curve)
-- distance markers every N kilometers (vertical gridlines)
-- GPX waypoints as checkpoints on the route (red lines)
-- sideways ASCII kilometer labels (font-free, readable on printed strips)
-- exact kilometer labels for each checkpoint line
-- total route kilometer label on the end border line
+The output is a wide, low-profile image suitable for printing as a strip (e.g. taped to a handlebar).
+
+## Features
+
+- Elevation profile over distance (filled blue curve with elevation Y-axis)
+- Automatic climb detection — major climbs highlighted in orange with gain and average gradient labels
+- Configurable distance markers (vertical gridlines every N km)
+- GPX waypoints displayed as checkpoints (red lines with km labels)
+- Sideways ASCII bitmap labels — no system font dependencies
+- Total route distance label on the end border
+- Optional horizontal mirror for back-readable printing
 
 ## Example output
 
-![Example screen](route_graph_example.png)
+![Example output](route_graph_example.png)
 
-Example generated from `ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx`.
+A separate climb stats image is also generated:
+
+![Climb stats](route_graph_example_climbs.png)
 
 ## Build
 
@@ -22,61 +28,45 @@ Example generated from `ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx`
 cargo build --release
 ```
 
-## Run
+## Usage
+
+Basic:
 
 ```bash
-cargo run --release -- \
-  --input ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx \
-  --output route_graph.png \
-  --km-step 10 \
-  --km-label-step 25 \
-  --km-label-scale 5
+cargo run --release -- -i route.gpx -o route_graph.png
 ```
 
-Back-readable printing mode (flip full image left-right):
+With all options:
 
 ```bash
 cargo run --release -- \
-  --input ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx \
-  --output route_graph_mirrored.png \
-  --mirror
-```
-
-Extra readability preset:
-
-```bash
-cargo run --release -- \
-  --input ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx \
-  --output route_graph_readable.png \
+  -i route.gpx \
+  -o route_graph.png \
   --km-step 5 \
   --km-label-step 30 \
-  --km-label-scale 6
-```
-
-Optional: keep only specific checkpoints by name:
-
-```bash
-cargo run --release -- \
-  --input ff_acp_20_paris_dieppe_2023-16059614-1776064583-488.gpx \
-  --output route_graph_controls.png \
-  --km-step 5 \
-  --checkpoint-filter controle
+  --km-label-scale 6 \
+  --mirror \
+  --checkpoint-filter controle \
+  --climb-min-gain 50
 ```
 
 ## CLI options
 
-- `-i, --input <PATH>`: input GPX file (required)
-- `-o, --output <PATH>`: output PNG file (default: `route_graph.png`)
-- `--km-step <N>`: kilometer guide line interval (default: `10`)
-- `--km-label-step <N>`: kilometer label interval (default: `25`)
-- `--km-label-scale <N>`: ASCII bitmap label scale, from `1` to `8` (default: `5`)
-- `--mirror`: flip the whole output image horizontally after rendering (for back-readable printing)
-- `--checkpoint-filter <TEXT>`: only show waypoints whose names contain this text (case-insensitive)
+| Option | Description | Default |
+|---|---|---|
+| `-i, --input <PATH>` | Input GPX file | *required* |
+| `-o, --output <PATH>` | Output PNG file | `route_graph.png` |
+| `--km-step <N>` | Km gridline interval | `10` |
+| `--km-label-step <N>` | Km label interval | `25` |
+| `--km-label-scale <N>` | Label scale factor (1-8) | `5` |
+| `--mirror` | Flip image horizontally | `false` |
+| `--checkpoint-filter <TEXT>` | Only show waypoints whose name contains this text (case-insensitive) | *none* |
+| `--climb-min-gain <N>` | Minimum elevation gain (meters) to highlight a climb | `30` |
+| `--split <N>` | Split output into separate files of N km each | *none* |
 
 ## Notes
 
 - Checkpoints come from GPX `<wpt>` entries.
-- Distance is computed with haversine formula over track points.
-- Rendering avoids system font dependencies to prevent `FontUnavailable` errors.
-- Image dimensions default to a wide/low profile suitable for printing and rotating.
-- Checkpoint and kilometer labels are ASCII bitmap glyphs (no system font required).
+- Distance is computed with the haversine formula over track points.
+- Climbs are detected by smoothing the profile (200m resampling) and tracking sustained elevation gains above the threshold. Each climb shows total gain and average gradient.
+- All text rendering uses hand-rolled 5x7 ASCII bitmap glyphs — no system fonts required.

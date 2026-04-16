@@ -1,0 +1,4 @@
+target/
+*.gpx
+*.png
+.git/

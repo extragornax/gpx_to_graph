@@ -2,6 +2,7 @@
 name = "gpx_to_graph"
 version = "0.1.0"
 edition = "2024"
+default-run = "gpx_to_graph"
 
 [dependencies]
 anyhow = "1"
@@ -9,3 +10,17 @@ clap = { version = "4", features = ["derive"] }
 gpx = "0.10"
 image = "0.24"
 plotters = { version = "0.3", default-features = false, features = ["bitmap_backend", "bitmap_encoder", "line_series", "point_series", "full_palette", "ab_glyph"] }
+
+# Server dependencies (optional)
+axum = { version = "0.8", features = ["multipart"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+base64 = { version = "0.22", optional = true }
+
+[features]
+default = []
+server = ["dep:axum", "dep:tokio", "dep:base64"]
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+required-features = ["server"]
