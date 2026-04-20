@@ -15,10 +15,11 @@ plotters = { version = "0.3", default-features = false, features = ["bitmap_back
 axum = { version = "0.8", features = ["multipart"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 base64 = { version = "0.22", optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = []
-server = ["dep:axum", "dep:tokio", "dep:base64"]
+server = ["dep:axum", "dep:tokio", "dep:base64", "dep:serde_json"]
 
 [[bin]]
 name = "server"

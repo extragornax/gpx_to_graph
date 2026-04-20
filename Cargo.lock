@@ -454,6 +454,7 @@ dependencies = [
  "gpx",
  "image",
  "plotters",
+ "serde_json",
  "tokio",
 ]
 
