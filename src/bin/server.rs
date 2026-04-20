@@ -9,7 +9,6 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use gpx::{read as gpx_read, write as gpx_write, Gpx};
 use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
 
 const FORM_HTML: &str = r#"<!DOCTYPE html>
@@ -653,49 +652,176 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     )
 }
 
-fn sort_by_first_time(data: &[Gpx]) -> Vec<Gpx> {
-    let mut cloned = data.to_owned();
-    cloned.sort_by_key(|item| {
-        item.tracks
-            .first()
-            .and_then(|t| t.segments.first())
-            .and_then(|s| s.points.first())
-            .and_then(|p| p.time)
-    });
-    cloned
+// ---------------------------------------------------------------------------
+// Byte-level GPX merge
+//
+// The `gpx` crate (0.10) drops <extensions> during parse (see its
+// `parser/extensions.rs`: "TODO: extensions are not implemented"), which would
+// lose heart-rate, cadence, power, temperature and any other per-point sensor
+// data carried by the Garmin TrackPointExtension schema. To keep that data
+// intact we merge at the raw XML level: we never re-serialise trkpt content,
+// we only splice whole <trkseg>…</trkseg> blocks from the other files into the
+// base file's first <trk>. This preserves every child element verbatim,
+// including <extensions> and any custom namespaces.
+// ---------------------------------------------------------------------------
+
+fn find_after(data: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    if needle.is_empty() || from > data.len() {
+        return None;
+    }
+    data[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| from + p)
 }
 
-fn merge_traces(data: &[Gpx], creator: Option<String>) -> Gpx {
-    if data.is_empty() {
-        return Gpx::default();
-    }
-    if data.len() == 1 {
-        let mut single = data[0].clone();
-        if let Some(cc) = creator {
-            single.creator = Some(cc);
+fn find_trkseg_open(data: &[u8], from: usize) -> Option<usize> {
+    let mut i = from;
+    loop {
+        let abs = find_after(data, b"<trkseg", i)?;
+        let after = data.get(abs + b"<trkseg".len()).copied();
+        match after {
+            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/') => {
+                return Some(abs)
+            }
+            _ => i = abs + b"<trkseg".len(),
         }
-        return single;
     }
+}
 
-    let sorted = sort_by_first_time(data);
-    let (base, remaining) = sorted.split_at(1);
-    let mut base = base[0].clone();
-    for item in remaining {
-        for lt in &item.tracks {
-            if base.tracks.is_empty() {
-                base.tracks.push(lt.clone());
-            } else {
-                for ls in &lt.segments {
-                    base.tracks[0].segments.push(ls.clone());
+fn extract_trksegs(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(start) = find_trkseg_open(data, pos) {
+        let Some(gt) = find_after(data, b">", start) else {
+            break;
+        };
+        if gt > 0 && data[gt - 1] == b'/' {
+            out.push(data[start..=gt].to_vec());
+            pos = gt + 1;
+            continue;
+        }
+        let Some(close) = find_after(data, b"</trkseg>", gt) else {
+            break;
+        };
+        let close_end = close + b"</trkseg>".len();
+        out.push(data[start..close_end].to_vec());
+        pos = close_end;
+    }
+    out
+}
+
+fn first_trkpt_time(data: &[u8]) -> Option<String> {
+    let tp = find_after(data, b"<trkpt", 0)?;
+    let time_tag = find_after(data, b"<time>", tp)?;
+    let value_start = time_tag + b"<time>".len();
+    let time_end = find_after(data, b"</time>", value_start)?;
+    std::str::from_utf8(&data[value_start..time_end])
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn escape_xml_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+fn rewrite_gpx_creator(data: &[u8], new_creator: &str) -> Vec<u8> {
+    let Some(start) = find_after(data, b"<gpx", 0) else {
+        return data.to_vec();
+    };
+    let Some(end) = find_after(data, b">", start) else {
+        return data.to_vec();
+    };
+
+    if let Some(rel_c) = data[start..=end]
+        .windows(b"creator=".len())
+        .position(|w| w == b"creator=")
+    {
+        let after_eq = start + rel_c + b"creator=".len();
+        if after_eq < data.len() {
+            let quote = data[after_eq];
+            if quote == b'"' || quote == b'\'' {
+                let value_start = after_eq + 1;
+                if let Some(rel_end) = data[value_start..=end].iter().position(|&c| c == quote) {
+                    let value_end = value_start + rel_end;
+                    let escaped = escape_xml_attr(new_creator);
+                    let mut out = Vec::with_capacity(data.len() + escaped.len());
+                    out.extend_from_slice(&data[..value_start]);
+                    out.extend_from_slice(escaped.as_bytes());
+                    out.extend_from_slice(&data[value_end..]);
+                    return out;
                 }
             }
         }
     }
 
-    if let Some(cc) = creator {
-        base.creator = Some(cc);
+    let insert_at = if end > 0 && data[end - 1] == b'/' {
+        end - 1
+    } else {
+        end
+    };
+    let escaped = escape_xml_attr(new_creator);
+    let insertion = format!(" creator=\"{escaped}\"");
+    let mut out = Vec::with_capacity(data.len() + insertion.len());
+    out.extend_from_slice(&data[..insert_at]);
+    out.extend_from_slice(insertion.as_bytes());
+    out.extend_from_slice(&data[insert_at..]);
+    out
+}
+
+fn splice_trksegs_before_first_close_trk(base: &[u8], extras: &[Vec<u8>]) -> Vec<u8> {
+    if extras.is_empty() {
+        return base.to_vec();
     }
-    base
+    let Some(close_pos) = find_after(base, b"</trk>", 0) else {
+        return base.to_vec();
+    };
+    let extras_total: usize = extras.iter().map(|e| e.len() + 1).sum();
+    let mut out = Vec::with_capacity(base.len() + extras_total);
+    out.extend_from_slice(&base[..close_pos]);
+    for seg in extras {
+        out.extend_from_slice(seg);
+        out.push(b'\n');
+    }
+    out.extend_from_slice(&base[close_pos..]);
+    out
+}
+
+fn merge_gpx_preserving_extensions(
+    files: Vec<Vec<u8>>,
+    creator: Option<String>,
+) -> Result<Vec<u8>, String> {
+    if files.is_empty() {
+        return Err("no files provided".to_string());
+    }
+
+    let mut indexed: Vec<(Option<String>, Vec<u8>)> = files
+        .into_iter()
+        .map(|f| (first_trkpt_time(&f), f))
+        .collect();
+    indexed.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut iter = indexed.into_iter();
+    let (_, base) = iter.next().expect("non-empty after check");
+    let extras: Vec<Vec<u8>> = iter.flat_map(|(_, f)| extract_trksegs(&f)).collect();
+
+    let base = match creator.as_deref() {
+        Some(c) => rewrite_gpx_creator(&base, c),
+        None => base,
+    };
+
+    Ok(splice_trksegs_before_first_close_trk(&base, &extras))
 }
 
 async fn merge_handler(mut multipart: Multipart) -> Response {
@@ -735,18 +861,8 @@ async fn merge_handler(mut multipart: Multipart) -> Response {
     }
 
     let creator_for_task = creator.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-        let mut parsed: Vec<Gpx> = Vec::with_capacity(files.len());
-        for (i, bytes) in files.iter().enumerate() {
-            let g = gpx_read(std::io::Cursor::new(bytes))
-                .map_err(|e| format!("Invalid GPX in file {}: {e}", i + 1))?;
-            parsed.push(g);
-        }
-        let merged = merge_traces(&parsed, creator_for_task);
-        let mut out: Vec<u8> = Vec::new();
-        gpx_write(&merged, &mut out)
-            .map_err(|e| format!("Failed to serialize merged GPX: {e}"))?;
-        Ok(out)
+    let result = tokio::task::spawn_blocking(move || {
+        merge_gpx_preserving_extensions(files, creator_for_task)
     })
     .await;
 
