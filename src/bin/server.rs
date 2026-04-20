@@ -1,12 +1,15 @@
 use std::io::Cursor;
 
 use axum::{
+    body::Body,
     extract::{DefaultBodyLimit, Multipart},
-    response::Html,
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use gpx::{read as gpx_read, write as gpx_write, Gpx};
 use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
 
 const FORM_HTML: &str = r#"<!DOCTYPE html>
@@ -145,59 +148,167 @@ const FORM_HTML: &str = r#"<!DOCTYPE html>
   button[type="submit"]:hover {
     background: #1d4ed8;
   }
+  .tabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 1.5rem;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab:hover { color: #333; }
+  .tab.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .status-line {
+    margin-top: 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .status-line.info { color: #2563eb; }
+  .status-line.ok { color: #16a34a; }
+  .status-line.err { color: #dc2626; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>GPX to Graph</h1>
-  <p class="subtitle">Upload a GPX file to generate an elevation profile graph.</p>
-  <div class="card">
-    <form method="post" action="/generate" enctype="multipart/form-data">
-      <div class="file-section">
-        <label for="gpx_file">GPX File</label>
-        <input type="file" id="gpx_file" name="gpx_file" accept=".gpx" required>
-      </div>
+  <h1>GPX Tools</h1>
+  <p class="subtitle">Generate elevation graphs or merge multiple GPX files.</p>
 
-      <div class="section-title">Graph Settings</div>
-      <div class="grid">
-        <div class="field">
-          <label for="km_step">KM Step (grid lines)</label>
-          <input type="number" id="km_step" name="km_step" value="10" step="any" min="0.1">
-        </div>
-        <div class="field">
-          <label for="km_label_step">KM Label Step</label>
-          <input type="number" id="km_label_step" name="km_label_step" value="25" step="any" min="0.1">
-        </div>
-        <div class="field">
-          <label for="km_label_scale">KM Label Scale</label>
-          <input type="number" id="km_label_scale" name="km_label_scale" value="5" min="1" max="8">
-        </div>
-        <div class="field">
-          <label for="climb_min_gain">Min Climb Gain (m)</label>
-          <input type="number" id="climb_min_gain" name="climb_min_gain" value="30" step="any" min="0">
-        </div>
-        <div class="field">
-          <label for="split">Split every N km</label>
-          <input type="number" id="split" name="split" value="" step="any" min="0.1" placeholder="Leave empty to disable">
-          <span class="hint">Leave empty to generate a single image</span>
-        </div>
-        <div class="field">
-          <label for="checkpoint_filter">Checkpoint Filter</label>
-          <input type="text" id="checkpoint_filter" name="checkpoint_filter" value="" placeholder="Optional text filter">
-          <span class="hint">Keep only checkpoints matching this text</span>
-        </div>
-        <div class="checkbox-field">
-          <input type="checkbox" id="mirror" name="mirror" value="on">
-          <label for="mirror">Mirror horizontally</label>
-        </div>
-      </div>
+  <div class="tabs">
+    <button type="button" class="tab active" data-target="graph">Graph</button>
+    <button type="button" class="tab" data-target="merge">Merge</button>
+  </div>
 
-      <div class="submit-section">
-        <button type="submit">Generate Profile</button>
-      </div>
-    </form>
+  <div id="panel-graph" class="panel active">
+    <div class="card">
+      <form method="post" action="/generate" enctype="multipart/form-data">
+        <div class="file-section">
+          <label for="gpx_file">GPX File</label>
+          <input type="file" id="gpx_file" name="gpx_file" accept=".gpx" required>
+        </div>
+
+        <div class="section-title">Graph Settings</div>
+        <div class="grid">
+          <div class="field">
+            <label for="km_step">KM Step (grid lines)</label>
+            <input type="number" id="km_step" name="km_step" value="10" step="any" min="0.1">
+          </div>
+          <div class="field">
+            <label for="km_label_step">KM Label Step</label>
+            <input type="number" id="km_label_step" name="km_label_step" value="25" step="any" min="0.1">
+          </div>
+          <div class="field">
+            <label for="km_label_scale">KM Label Scale</label>
+            <input type="number" id="km_label_scale" name="km_label_scale" value="5" min="1" max="8">
+          </div>
+          <div class="field">
+            <label for="climb_min_gain">Min Climb Gain (m)</label>
+            <input type="number" id="climb_min_gain" name="climb_min_gain" value="30" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="split">Split every N km</label>
+            <input type="number" id="split" name="split" value="" step="any" min="0.1" placeholder="Leave empty to disable">
+            <span class="hint">Leave empty to generate a single image</span>
+          </div>
+          <div class="field">
+            <label for="checkpoint_filter">Checkpoint Filter</label>
+            <input type="text" id="checkpoint_filter" name="checkpoint_filter" value="" placeholder="Optional text filter">
+            <span class="hint">Keep only checkpoints matching this text</span>
+          </div>
+          <div class="checkbox-field">
+            <input type="checkbox" id="mirror" name="mirror" value="on">
+            <label for="mirror">Mirror horizontally</label>
+          </div>
+        </div>
+
+        <div class="submit-section">
+          <button type="submit">Generate Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="panel-merge" class="panel">
+    <div class="card">
+      <p class="subtitle" style="margin-bottom: 1.5rem;">Select 2 to 5 GPX files. They are sorted by timestamp and merged into a single track.</p>
+      <form id="mergeForm" enctype="multipart/form-data">
+        <div class="file-section">
+          <label for="merge_files">GPX Files</label>
+          <input type="file" id="merge_files" name="files" accept=".gpx" multiple required>
+          <span class="hint">Hold Ctrl/Cmd to select multiple files (2–5).</span>
+        </div>
+        <div class="field">
+          <label for="creator">Device / Creator Name</label>
+          <input type="text" id="creator" name="creator" placeholder="e.g. Garmin Edge 1040">
+          <span class="hint">Leave empty to keep the first file's creator value.</span>
+        </div>
+        <div class="submit-section">
+          <button type="submit">Merge &amp; Download</button>
+        </div>
+        <div id="mergeStatus" class="status-line"></div>
+      </form>
+    </div>
   </div>
 </div>
+<script>
+  document.querySelectorAll('.tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.target).classList.add('active');
+    });
+  });
+
+  var mergeForm = document.getElementById('mergeForm');
+  var mergeStatus = document.getElementById('mergeStatus');
+  mergeForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var files = document.getElementById('merge_files').files;
+    if (files.length < 2 || files.length > 5) {
+      mergeStatus.textContent = 'Please select between 2 and 5 GPX files.';
+      mergeStatus.className = 'status-line err';
+      return;
+    }
+    mergeStatus.textContent = 'Merging…';
+    mergeStatus.className = 'status-line info';
+    try {
+      var res = await fetch('/merge', { method: 'POST', body: new FormData(mergeForm) });
+      if (!res.ok) {
+        var errText = await res.text();
+        throw new Error(errText || ('Request failed: ' + res.status));
+      }
+      var blob = await res.blob();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'merged.gpx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      mergeStatus.textContent = 'Merged successfully — merged.gpx downloaded.';
+      mergeStatus.className = 'status-line ok';
+    } catch (err) {
+      mergeStatus.textContent = 'Error: ' + err.message;
+      mergeStatus.className = 'status-line err';
+    }
+  });
+</script>
 </body>
 </html>"#;
 
@@ -542,6 +653,122 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     )
 }
 
+fn sort_by_first_time(data: &[Gpx]) -> Vec<Gpx> {
+    let mut cloned = data.to_owned();
+    cloned.sort_by_key(|item| {
+        item.tracks
+            .first()
+            .and_then(|t| t.segments.first())
+            .and_then(|s| s.points.first())
+            .and_then(|p| p.time)
+    });
+    cloned
+}
+
+fn merge_traces(data: &[Gpx], creator: Option<String>) -> Gpx {
+    if data.is_empty() {
+        return Gpx::default();
+    }
+    if data.len() == 1 {
+        let mut single = data[0].clone();
+        if let Some(cc) = creator {
+            single.creator = Some(cc);
+        }
+        return single;
+    }
+
+    let sorted = sort_by_first_time(data);
+    let (base, remaining) = sorted.split_at(1);
+    let mut base = base[0].clone();
+    for item in remaining {
+        for lt in &item.tracks {
+            if base.tracks.is_empty() {
+                base.tracks.push(lt.clone());
+            } else {
+                for ls in &lt.segments {
+                    base.tracks[0].segments.push(ls.clone());
+                }
+            }
+        }
+    }
+
+    if let Some(cc) = creator {
+        base.creator = Some(cc);
+    }
+    base
+}
+
+async fn merge_handler(mut multipart: Multipart) -> Response {
+    let mut files: Vec<Vec<u8>> = Vec::new();
+    let mut creator: Option<String> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "files" => {
+                if let Ok(data) = field.bytes().await
+                    && !data.is_empty()
+                {
+                    files.push(data.to_vec());
+                }
+            }
+            "creator" => {
+                if let Ok(text) = field.text().await {
+                    let trimmed = text.trim().to_string();
+                    if !trimmed.is_empty() {
+                        creator = Some(trimmed);
+                    }
+                }
+            }
+            _ => {
+                let _ = field.bytes().await;
+            }
+        }
+    }
+
+    if !(2..=5).contains(&files.len()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Expected 2 to 5 GPX files, got {}.", files.len()),
+        )
+            .into_response();
+    }
+
+    let creator_for_task = creator.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let mut parsed: Vec<Gpx> = Vec::with_capacity(files.len());
+        for (i, bytes) in files.iter().enumerate() {
+            let g = gpx_read(std::io::Cursor::new(bytes))
+                .map_err(|e| format!("Invalid GPX in file {}: {e}", i + 1))?;
+            parsed.push(g);
+        }
+        let merged = merge_traces(&parsed, creator_for_task);
+        let mut out: Vec<u8> = Vec::new();
+        gpx_write(&merged, &mut out)
+            .map_err(|e| format!("Failed to serialize merged GPX: {e}"))?;
+        Ok(out)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(bytes)) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/gpx+xml")
+            .header(
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"merged.gpx\"",
+            )
+            .body(Body::from(bytes))
+            .expect("valid response"),
+        Ok(Err(msg)) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task failed: {e}"),
+        )
+            .into_response(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let port = std::env::var("PORT")
@@ -552,6 +779,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(form_page))
         .route("/generate", post(generate_handler))
+        .route("/merge", post(merge_handler))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
