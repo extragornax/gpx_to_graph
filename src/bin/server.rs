@@ -13,7 +13,7 @@ use base64::Engine;
 use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
 use serde_json::{json, Value};
 
-const SHARE_TTL_SECS: u64 = 48 * 3600;
+const SHARE_TTL_SECS: u64 = 30 * 24 * 3600;
 
 fn share_dir() -> PathBuf {
     std::env::var("GPX_SHARE_DIR")
@@ -1214,17 +1214,24 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     let expires_at = created_at + SHARE_TTL_SECS;
-    let hours_left = {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        if expires_at > now {
-            (expires_at - now) / 3600
-        } else {
-            0
-        }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let secs_left = expires_at.saturating_sub(now);
+    let time_left_label = if secs_left == 0 {
+        "shortly".to_string()
+    } else if secs_left >= 24 * 3600 {
+        let days = secs_left / (24 * 3600);
+        format!("{days} day{}", if days == 1 { "" } else { "s" })
+    } else if secs_left >= 3600 {
+        let h = secs_left / 3600;
+        format!("{h} hour{}", if h == 1 { "" } else { "s" })
+    } else {
+        let m = (secs_left / 60).max(1);
+        format!("{m} minute{}", if m == 1 { "" } else { "s" })
     };
+    let ttl_days = SHARE_TTL_SECS / (24 * 3600);
     let images = meta
         .get("images")
         .and_then(|v| v.as_array())
@@ -1421,7 +1428,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
       <button id="copyBtn" type="button">Copy link</button>
       <a class="btn-link" href="{gpx_studio_url}" target="_blank" rel="noopener">Open in gpx.studio &rarr;</a>
     </div>
-    <p class="ttl-note">Link expires in about {hours_left} hour(s). Results and the source GPX are kept for 48 h after creation.</p>
+    <p class="ttl-note">Link expires in about {time_left_label}. Results and the source GPX are kept for {ttl_days} days after creation.</p>
     <div><a href="/share/{id}/source.gpx" download="source.gpx">Download original GPX</a></div>
   </div>
 
@@ -1466,7 +1473,8 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
         total_km = total_km,
         num_checkpoints = num_checkpoints,
         num_climbs = num_climbs,
-        hours_left = hours_left,
+        time_left_label = time_left_label,
+        ttl_days = ttl_days,
         images_html = images_html,
         og_meta = og_meta,
         gpx_studio_url = gpx_studio_url,
