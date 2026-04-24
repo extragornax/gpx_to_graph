@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
@@ -53,6 +53,31 @@ fn is_safe_filename(s: &str) -> bool {
         && !s.contains("..")
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
+/// Resolve the public base URL (e.g. `https://example.com`).
+///
+/// `PUBLIC_BASE_URL` env wins if set; otherwise we derive it from the request
+/// headers, honouring `X-Forwarded-Proto` / `X-Forwarded-Host` so the link is
+/// correct behind a reverse proxy.
+fn public_base_url(headers: &HeaderMap) -> String {
+    if let Ok(env_url) = std::env::var("PUBLIC_BASE_URL") {
+        let trimmed = env_url.trim_end_matches('/').to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim())
+        .unwrap_or("http");
+    format!("{scheme}://{host}")
 }
 
 const FORM_HTML: &str = r##"<!DOCTYPE html>
@@ -1091,7 +1116,7 @@ async fn cleanup_shares() {
     }
 }
 
-async fn share_page(AxumPath(id): AxumPath<String>) -> Response {
+async fn share_page(headers: HeaderMap, AxumPath(id): AxumPath<String>) -> Response {
     if !is_safe_id(&id) {
         return error_page("Invalid share id.").into_response();
     }
@@ -1106,7 +1131,8 @@ async fn share_page(AxumPath(id): AxumPath<String>) -> Response {
         Ok(v) => v,
         Err(e) => return error_page(&format!("Corrupt share metadata: {e}")).into_response(),
     };
-    Html(build_share_page(&id, &meta)).into_response()
+    let base = public_base_url(&headers);
+    Html(build_share_page(&id, &meta, &base)).into_response()
 }
 
 async fn share_file(AxumPath((id, file)): AxumPath<(String, String)>) -> Response {
@@ -1127,14 +1153,30 @@ async fn share_file(AxumPath((id, file)): AxumPath<(String, String)>) -> Respons
     } else {
         "application/octet-stream"
     };
+    // CORS so gpx.studio (and other browser-side viewers/unfurlers) can
+    // fetch the file across origins.
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(bytes))
         .expect("valid response")
 }
 
-fn build_share_page(id: &str, meta: &Value) -> String {
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for &b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     let total_km = meta.get("total_km").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let num_checkpoints = meta
         .get("num_checkpoints")
@@ -1162,6 +1204,43 @@ fn build_share_page(id: &str, meta: &Value) -> String {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+
+    let share_abs = format!("{base_url}/share/{id}");
+    let gpx_abs = format!("{base_url}/share/{id}/source.gpx");
+    let og_image_abs = images
+        .first()
+        .and_then(|v| v.get("filename"))
+        .and_then(|v| v.as_str())
+        .map(|fname| format!("{base_url}/share/{id}/{fname}"))
+        .unwrap_or_default();
+
+    // gpx.studio expects ?files=<JSON-array of GPX URLs> and CORS-fetches each.
+    let gpx_studio_url = format!(
+        "https://gpx.studio/app?files={}",
+        url_encode(&format!("[\"{}\"]", gpx_abs.replace('"', "\\\"")))
+    );
+
+    let og_title = format!("GPX route — {total_km:.1} km");
+    let og_description = format!("{num_checkpoints} checkpoints · {num_climbs} climbs");
+    let og_meta = if og_image_abs.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<meta property="og:type" content="website">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="{url}">
+<meta property="og:image" content="{img}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{desc}">
+<meta name="twitter:image" content="{img}">"#,
+            title = html_escape(&og_title),
+            desc = html_escape(&og_description),
+            url = html_escape(&share_abs),
+            img = html_escape(&og_image_abs),
+        )
+    };
 
     let mut images_html = String::new();
     for (i, img) in images.iter().enumerate() {
@@ -1204,6 +1283,7 @@ fn build_share_page(id: &str, meta: &Value) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared route &mdash; GPX to Graph</title>
+{og_meta}
 <style>
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
@@ -1268,6 +1348,21 @@ fn build_share_page(id: &str, meta: &Value) -> String {
   .share-banner .ttl-note {{ font-size: 0.82rem; color: #4b5563; margin: 0; }}
   .share-banner a {{ color: #2563eb; font-weight: 600; text-decoration: none; font-size: 0.9rem; }}
   .share-banner a:hover {{ text-decoration: underline; }}
+  .share-banner a.btn-link {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.55rem 0.9rem;
+    background: #fff;
+    color: #2563eb;
+    border: 1px solid #2563eb;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    white-space: nowrap;
+  }}
+  .share-banner a.btn-link:hover {{ background: #eff6ff; text-decoration: none; }}
   .image-card {{
     background: #fff;
     border-radius: 12px;
@@ -1298,6 +1393,7 @@ fn build_share_page(id: &str, meta: &Value) -> String {
     <div class="share-row">
       <input type="text" id="shareUrl" readonly>
       <button id="copyBtn" type="button">Copy link</button>
+      <a class="btn-link" href="{gpx_studio_url}" target="_blank" rel="noopener">Open in gpx.studio &rarr;</a>
     </div>
     <p class="ttl-note">Link expires in about {hours_left} hour(s). Results and the source GPX are kept for 48 h after creation.</p>
     <div><a href="/share/{id}/source.gpx" download="source.gpx">Download original GPX</a></div>
@@ -1346,6 +1442,8 @@ fn build_share_page(id: &str, meta: &Value) -> String {
         num_climbs = num_climbs,
         hours_left = hours_left,
         images_html = images_html,
+        og_meta = og_meta,
+        gpx_studio_url = gpx_studio_url,
     )
 }
 
