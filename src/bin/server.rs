@@ -1,16 +1,59 @@
 use std::io::Cursor;
+use std::path::PathBuf;
 
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Multipart},
+    extract::{DefaultBodyLimit, Multipart, Path as AxumPath},
     http::{header, StatusCode},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::Engine;
 use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
 use serde_json::{json, Value};
+
+const SHARE_TTL_SECS: u64 = 48 * 3600;
+
+fn share_dir() -> PathBuf {
+    std::env::var("GPX_SHARE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/tmp/gpx_to_graph_share"))
+}
+
+fn random_id() -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use std::io::Read;
+    let mut buf = [0u8; 12];
+    let ok = std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .is_ok();
+    if !ok {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        for i in 0..12 {
+            buf[i] = ((n >> (i * 8)) & 0xff) as u8;
+        }
+    }
+    URL_SAFE_NO_PAD.encode(buf)
+}
+
+fn is_safe_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 32
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn is_safe_filename(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && !s.contains("..")
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
 
 const FORM_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
@@ -841,7 +884,7 @@ fn html_escape(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-async fn generate_handler(mut multipart: Multipart) -> Html<String> {
+async fn generate_handler(mut multipart: Multipart) -> Response {
     let mut gpx_bytes: Option<Vec<u8>> = None;
     let mut km_step: Option<f64> = None;
     let mut km_label_step: Option<f64> = None;
@@ -912,7 +955,7 @@ async fn generate_handler(mut multipart: Multipart) -> Html<String> {
 
     let gpx_bytes = match gpx_bytes {
         Some(b) => b,
-        None => return error_page("No GPX file was uploaded."),
+        None => return error_page("No GPX file was uploaded.").into_response(),
     };
 
     let opts = GraphOptions {
@@ -925,51 +968,231 @@ async fn generate_handler(mut multipart: Multipart) -> Html<String> {
         split,
     };
 
+    let gpx_bytes_for_task = gpx_bytes.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let reader = Cursor::new(gpx_bytes);
+        let reader = Cursor::new(gpx_bytes_for_task);
         generate(reader, &opts)
     })
     .await;
 
     let output: GeneratedOutput = match result {
         Ok(Ok(output)) => output,
-        Ok(Err(e)) => return error_page(&format!("{e:#}")),
-        Err(e) => return error_page(&format!("Task failed: {e}")),
+        Ok(Err(e)) => return error_page(&format!("{e:#}")).into_response(),
+        Err(e) => return error_page(&format!("Task failed: {e}")).into_response(),
     };
 
-    Html(build_results_page(&output))
+    match save_share(&gpx_bytes, &output).await {
+        Ok(id) => Redirect::to(&format!("/share/{id}")).into_response(),
+        Err(e) => error_page(&format!("Failed to save share: {e}")).into_response(),
+    }
 }
 
-fn build_results_page(output: &GeneratedOutput) -> String {
-    let mut images_html = String::new();
+async fn save_share(gpx_bytes: &[u8], output: &GeneratedOutput) -> Result<String, String> {
+    let id = random_id();
+    let dir = share_dir().join(&id);
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("create_dir_all: {e}"))?;
 
-    for (i, (label, png_bytes)) in output.graph_images.iter().enumerate() {
-        let b64 = STANDARD.encode(png_bytes);
+    tokio::fs::write(dir.join("source.gpx"), gpx_bytes)
+        .await
+        .map_err(|e| format!("write source.gpx: {e}"))?;
+
+    let mut images_meta: Vec<Value> = Vec::new();
+    for (i, (label, bytes)) in output.graph_images.iter().enumerate() {
+        let filename = format!("img_{i}.png");
+        tokio::fs::write(dir.join(&filename), bytes)
+            .await
+            .map_err(|e| format!("write {filename}: {e}"))?;
+        images_meta.push(json!({ "label": label, "filename": filename }));
+    }
+
+    let climb_stats_filename = if let Some(bytes) = &output.climb_stats {
+        let filename = "climbs.png".to_string();
+        tokio::fs::write(dir.join(&filename), bytes)
+            .await
+            .map_err(|e| format!("write climbs.png: {e}"))?;
+        Some(filename)
+    } else {
+        None
+    };
+
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let meta = json!({
+        "created_at": created_at,
+        "total_km": output.total_km,
+        "num_checkpoints": output.num_checkpoints,
+        "num_climbs": output.num_climbs,
+        "images": images_meta,
+        "climb_stats_filename": climb_stats_filename,
+    });
+
+    tokio::fs::write(
+        dir.join("meta.json"),
+        serde_json::to_vec_pretty(&meta).expect("valid json"),
+    )
+    .await
+    .map_err(|e| format!("write meta.json: {e}"))?;
+
+    Ok(id)
+}
+
+async fn cleanup_shares() {
+    let dir = share_dir();
+    if !dir.exists() {
+        return;
+    }
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let now = std::time::SystemTime::now();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let mut old = false;
+        if let Ok(meta_str) = tokio::fs::read_to_string(path.join("meta.json")).await {
+            if let Ok(v) = serde_json::from_str::<Value>(&meta_str) {
+                if let Some(created_at) = v.get("created_at").and_then(|v| v.as_u64()) {
+                    let created =
+                        std::time::UNIX_EPOCH + std::time::Duration::from_secs(created_at);
+                    if now
+                        .duration_since(created)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0)
+                        > SHARE_TTL_SECS
+                    {
+                        old = true;
+                    }
+                }
+            }
+        }
+        // Fallback: mtime.
+        if !old {
+            if let Ok(md) = tokio::fs::metadata(&path).await {
+                if let Ok(modified) = md.modified() {
+                    if now
+                        .duration_since(modified)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0)
+                        > SHARE_TTL_SECS
+                    {
+                        old = true;
+                    }
+                }
+            }
+        }
+        if old {
+            let _ = tokio::fs::remove_dir_all(&path).await;
+        }
+    }
+}
+
+async fn share_page(AxumPath(id): AxumPath<String>) -> Response {
+    if !is_safe_id(&id) {
+        return error_page("Invalid share id.").into_response();
+    }
+    let meta_path = share_dir().join(&id).join("meta.json");
+    let meta_bytes = match tokio::fs::read(&meta_path).await {
+        Ok(b) => b,
+        Err(_) => {
+            return error_page("This share link has expired or does not exist.").into_response();
+        }
+    };
+    let meta: Value = match serde_json::from_slice(&meta_bytes) {
+        Ok(v) => v,
+        Err(e) => return error_page(&format!("Corrupt share metadata: {e}")).into_response(),
+    };
+    Html(build_share_page(&id, &meta)).into_response()
+}
+
+async fn share_file(AxumPath((id, file)): AxumPath<(String, String)>) -> Response {
+    if !is_safe_id(&id) || !is_safe_filename(&file) {
+        return (StatusCode::BAD_REQUEST, "Invalid path".to_string()).into_response();
+    }
+    let path = share_dir().join(&id).join(&file);
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::NOT_FOUND, "Not found".to_string()).into_response(),
+    };
+    let content_type = if file.ends_with(".gpx") {
+        "application/gpx+xml"
+    } else if file.ends_with(".png") {
+        "image/png"
+    } else if file.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::from(bytes))
+        .expect("valid response")
+}
+
+fn build_share_page(id: &str, meta: &Value) -> String {
+    let total_km = meta.get("total_km").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let num_checkpoints = meta
+        .get("num_checkpoints")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let num_climbs = meta.get("num_climbs").and_then(|v| v.as_u64()).unwrap_or(0);
+    let created_at = meta
+        .get("created_at")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let expires_at = created_at + SHARE_TTL_SECS;
+    let hours_left = {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if expires_at > now {
+            (expires_at - now) / 3600
+        } else {
+            0
+        }
+    };
+    let images = meta
+        .get("images")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut images_html = String::new();
+    for (i, img) in images.iter().enumerate() {
+        let label = img.get("label").and_then(|v| v.as_str()).unwrap_or("");
+        let filename = img.get("filename").and_then(|v| v.as_str()).unwrap_or("");
         let safe_label = html_escape(label);
-        let download_name = if output.graph_images.len() == 1 {
+        let download_name = if images.len() == 1 {
             "profile.png".to_string()
         } else {
             format!("profile_{}.png", i + 1)
         };
-
         images_html.push_str(&format!(
             r#"
       <div class="image-card">
         <div class="image-label">{safe_label}</div>
-        <img src="data:image/png;base64,{b64}" alt="{safe_label}">
-        <a class="download-link" href="data:image/png;base64,{b64}" download="{download_name}">Download {safe_label}</a>
+        <img src="/share/{id}/{filename}" alt="{safe_label}">
+        <a class="download-link" href="/share/{id}/{filename}" download="{download_name}">Download {safe_label}</a>
       </div>"#
         ));
     }
-
-    if let Some(ref stats_bytes) = output.climb_stats {
-        let b64 = STANDARD.encode(stats_bytes);
+    if let Some(cs) = meta
+        .get("climb_stats_filename")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         images_html.push_str(&format!(
             r#"
       <div class="image-card">
         <div class="image-label">Climb Statistics</div>
-        <img src="data:image/png;base64,{b64}" alt="Climb Statistics">
-        <a class="download-link" href="data:image/png;base64,{b64}" download="climb_stats.png">Download Climb Statistics</a>
+        <img src="/share/{id}/{cs}" alt="Climb Statistics">
+        <a class="download-link" href="/share/{id}/{cs}" download="climb_stats.png">Download Climb Statistics</a>
       </div>"#
         ));
     }
@@ -980,7 +1203,7 @@ fn build_results_page(output: &GeneratedOutput) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Results - GPX to Graph</title>
+<title>Shared route &mdash; GPX to Graph</title>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
@@ -990,15 +1213,8 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     margin: 0;
     padding: 2rem 1rem;
   }}
-  .container {{
-    max-width: 900px;
-    margin: 0 auto;
-  }}
-  h1 {{
-    font-size: 1.75rem;
-    font-weight: 700;
-    margin: 0 0 0.25rem;
-  }}
+  .container {{ max-width: 900px; margin: 0 auto; }}
+  h1 {{ font-size: 1.75rem; font-weight: 700; margin: 0 0 0.25rem; }}
   .back-link {{
     display: inline-block;
     margin-bottom: 1.5rem;
@@ -1007,36 +1223,51 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     font-weight: 600;
     font-size: 0.95rem;
   }}
-  .back-link:hover {{
-    text-decoration: underline;
-  }}
+  .back-link:hover {{ text-decoration: underline; }}
   .card {{
     background: #fff;
     border-radius: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
-    padding: 2rem;
+    padding: 1.5rem 2rem;
     margin-bottom: 1.5rem;
   }}
-  .summary {{
-    display: flex;
-    gap: 2rem;
-    flex-wrap: wrap;
-  }}
-  .stat {{
-    text-align: center;
-  }}
-  .stat-value {{
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #2563eb;
-  }}
+  .summary {{ display: flex; gap: 2rem; flex-wrap: wrap; }}
+  .stat {{ text-align: center; }}
+  .stat-value {{ font-size: 1.5rem; font-weight: 700; color: #2563eb; }}
   .stat-label {{
-    font-size: 0.8rem;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 0.2rem;
+    font-size: 0.8rem; color: #666;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.2rem;
   }}
+  .share-banner {{
+    display: flex; flex-direction: column; gap: 0.6rem;
+    border: 1px solid #dbeafe; background: #eff6ff;
+  }}
+  .share-banner .share-title {{ font-weight: 700; font-size: 0.95rem; color: #1e3a8a; }}
+  .share-banner .share-row {{ display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }}
+  .share-banner input[type="text"] {{
+    flex: 1 1 260px;
+    min-width: 0;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    font: inherit;
+    background: #fff;
+    color: #111;
+  }}
+  .share-banner button {{
+    padding: 0.55rem 0.9rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }}
+  .share-banner button:hover {{ background: #1d4ed8; }}
+  .share-banner .ttl-note {{ font-size: 0.82rem; color: #4b5563; margin: 0; }}
+  .share-banner a {{ color: #2563eb; font-weight: 600; text-decoration: none; font-size: 0.9rem; }}
+  .share-banner a:hover {{ text-decoration: underline; }}
   .image-card {{
     background: #fff;
     border-radius: 12px;
@@ -1044,18 +1275,8 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }}
-  .image-label {{
-    font-weight: 600;
-    font-size: 1rem;
-    margin-bottom: 1rem;
-    color: #333;
-  }}
-  .image-card img {{
-    max-width: 100%;
-    height: auto;
-    border-radius: 8px;
-    border: 1px solid #e5e7eb;
-  }}
+  .image-label {{ font-weight: 600; font-size: 1rem; margin-bottom: 1rem; color: #333; }}
+  .image-card img {{ max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #e5e7eb; }}
   .download-link {{
     display: inline-block;
     margin-top: 0.75rem;
@@ -1064,15 +1285,23 @@ fn build_results_page(output: &GeneratedOutput) -> String {
     font-weight: 500;
     font-size: 0.9rem;
   }}
-  .download-link:hover {{
-    text-decoration: underline;
-  }}
+  .download-link:hover {{ text-decoration: underline; }}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>Generated Profile</h1>
   <a class="back-link" href="/">&larr; Generate another</a>
+
+  <div class="card share-banner">
+    <div class="share-title">Share this result</div>
+    <div class="share-row">
+      <input type="text" id="shareUrl" readonly>
+      <button id="copyBtn" type="button">Copy link</button>
+    </div>
+    <p class="ttl-note">Link expires in about {hours_left} hour(s). Results and the source GPX are kept for 48 h after creation.</p>
+    <div><a href="/share/{id}/source.gpx" download="source.gpx">Download original GPX</a></div>
+  </div>
 
   <div class="card">
     <div class="summary">
@@ -1093,11 +1322,29 @@ fn build_results_page(output: &GeneratedOutput) -> String {
 
   {images_html}
 </div>
+<script>
+  var shareInput = document.getElementById('shareUrl');
+  shareInput.value = window.location.href;
+  document.getElementById('copyBtn').addEventListener('click', async function () {{
+    var btn = this;
+    try {{
+      await navigator.clipboard.writeText(shareInput.value);
+    }} catch (e) {{
+      shareInput.select();
+      document.execCommand('copy');
+    }}
+    var prev = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function () {{ btn.textContent = prev; }}, 1500);
+  }});
+</script>
 </body>
 </html>"#,
-        total_km = output.total_km,
-        num_checkpoints = output.num_checkpoints,
-        num_climbs = output.num_climbs,
+        id = id,
+        total_km = total_km,
+        num_checkpoints = num_checkpoints,
+        num_climbs = num_climbs,
+        hours_left = hours_left,
         images_html = images_html,
     )
 }
@@ -1755,10 +2002,23 @@ async fn main() {
         .route("/", get(form_page))
         .route("/generate", post(generate_handler))
         .route("/merge", post(merge_handler))
+        .route("/share/{id}", get(share_page))
+        .route("/share/{id}/{file}", get(share_file))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
+    // Purge share directories older than SHARE_TTL_SECS every 10 min.
+    tokio::spawn(async {
+        loop {
+            cleanup_shares().await;
+            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        }
+    });
+
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    println!("Server running at http://localhost:{port}");
+    println!(
+        "Server running at http://localhost:{port} (shares in {})",
+        share_dir().display()
+    );
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
