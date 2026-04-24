@@ -99,6 +99,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPX to Graph</title>
+<link rel="stylesheet" href="/static/recents.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body {
@@ -420,6 +421,13 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
 </style>
 </head>
 <body>
+<aside id="recentsSidebar" class="recents-sidebar" aria-label="Recent routes" hidden>
+  <div class="rx-header">
+    <span class="rx-title">Recent routes</span>
+    <button type="button" id="recentsClear" class="rx-clear" title="Clear all">×</button>
+  </div>
+  <ol id="recentsList" class="rx-list"></ol>
+</aside>
 <div class="container">
   <h1>GPX Tools</h1>
   <p class="subtitle">Generate elevation graphs or merge multiple GPX files.</p>
@@ -839,11 +847,200 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     }
   });
 </script>
+<script src="/static/recents.js" defer></script>
 </body>
 </html>"##;
 
 async fn form_page() -> Html<&'static str> {
     Html(FORM_HTML)
+}
+
+// ---------------------------------------------------------------------------
+// Recents sidebar — small LocalStorage-backed list of recently viewed shares.
+// Served as static assets so the share page and the form page reuse them.
+// ---------------------------------------------------------------------------
+
+const RECENTS_CSS: &str = r##"
+.recents-sidebar {
+  position: fixed;
+  top: 2rem;
+  left: 1rem;
+  width: 220px;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  padding: 0.75rem 1rem;
+  z-index: 50;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.recents-sidebar[hidden] { display: none; }
+.rx-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.35rem;
+}
+.rx-title {
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rx-clear {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+}
+.rx-clear:hover { background: #f3f4f6; color: #111; }
+.rx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.rx-item a {
+  display: block;
+  text-decoration: none;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  transition: background 0.12s;
+  border: 1px solid transparent;
+}
+.rx-item a:hover {
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+.rx-item.active a {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+.rx-item .rx-itm-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #1d4ed8;
+}
+.rx-item .rx-itm-sub {
+  font-size: 0.72rem;
+  color: #6b7280;
+  margin-top: 0.1rem;
+}
+@media (max-width: 1250px) {
+  .recents-sidebar {
+    position: static;
+    width: auto;
+    max-width: 900px;
+    margin: 0 auto 1.25rem;
+  }
+}
+"##;
+
+const RECENTS_JS: &str = r##"
+(function () {
+  var KEY = 'gpxRecents';
+  var MAX = 12;
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return [];
+      var v = JSON.parse(raw);
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  }
+  function save(list) {
+    try { localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX))); } catch (e) {}
+  }
+  function relTime(ts) {
+    if (!ts) return '';
+    var diff = (Date.now() / 1000) - ts;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 2592000) return Math.floor(diff / 86400) + 'd ago';
+    var d = new Date(ts * 1000);
+    return isNaN(d) ? '' : d.toLocaleDateString();
+  }
+  function render(list) {
+    var sidebar = document.getElementById('recentsSidebar');
+    var ul = document.getElementById('recentsList');
+    if (!sidebar || !ul) return;
+    if (!list.length) { sidebar.hidden = true; return; }
+    sidebar.hidden = false;
+    var currentId = (window.__recentCurrent && window.__recentCurrent.id) || null;
+    ul.innerHTML = '';
+    list.forEach(function (item) {
+      var li = document.createElement('li');
+      li.className = 'rx-item' + (item.id === currentId ? ' active' : '');
+      var a = document.createElement('a');
+      a.href = '/share/' + encodeURIComponent(item.id);
+      var km = (item.total_km != null) ? Number(item.total_km).toFixed(1) + ' km' : 'Route';
+      var climbs = (item.num_climbs != null) ? (item.num_climbs + ' climbs') : '';
+      var cps = (item.num_checkpoints != null) ? (item.num_checkpoints + ' cps') : '';
+      var extra = [cps, climbs].filter(Boolean).join(' · ');
+      a.innerHTML =
+        '<div class="rx-itm-title">' + km + '</div>' +
+        '<div class="rx-itm-sub">' + relTime(item.created_at) +
+        (extra ? ' · ' + extra : '') + '</div>';
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+  }
+  function addCurrent(current) {
+    var list = load();
+    list = list.filter(function (x) { return x.id !== current.id; });
+    list.unshift(current);
+    save(list);
+    return list;
+  }
+  function init() {
+    var clearBtn = document.getElementById('recentsClear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        if (confirm('Clear recent routes?')) { save([]); render([]); }
+      });
+    }
+    var list = load();
+    if (window.__recentCurrent && window.__recentCurrent.id) {
+      list = addCurrent(window.__recentCurrent);
+    }
+    render(list);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+"##;
+
+async fn static_recents_css() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(RECENTS_CSS))
+        .expect("valid response")
+}
+
+async fn static_recents_js() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(RECENTS_JS))
+        .expect("valid response")
 }
 
 fn error_page(message: &str) -> Html<String> {
@@ -1317,6 +1514,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared route &mdash; GPX to Graph</title>
 {og_meta}
+<link rel="stylesheet" href="/static/recents.css">
 <style>
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
@@ -1417,6 +1615,13 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 </style>
 </head>
 <body>
+<aside id="recentsSidebar" class="recents-sidebar" aria-label="Recent routes" hidden>
+  <div class="rx-header">
+    <span class="rx-title">Recent routes</span>
+    <button type="button" id="recentsClear" class="rx-clear" title="Clear all">×</button>
+  </div>
+  <ol id="recentsList" class="rx-list"></ol>
+</aside>
 <div class="container">
   <h1>Generated Profile</h1>
   <a class="back-link" href="/">&larr; Generate another</a>
@@ -1466,13 +1671,23 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     btn.textContent = 'Copied!';
     setTimeout(function () {{ btn.textContent = prev; }}, 1500);
   }});
+  window.__recentCurrent = {{
+    id: {id_json},
+    total_km: {total_km},
+    num_checkpoints: {num_checkpoints},
+    num_climbs: {num_climbs},
+    created_at: {created_at}
+  }};
 </script>
+<script src="/static/recents.js" defer></script>
 </body>
 </html>"#,
         id = id,
+        id_json = serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string()),
         total_km = total_km,
         num_checkpoints = num_checkpoints,
         num_climbs = num_climbs,
+        created_at = created_at,
         time_left_label = time_left_label,
         ttl_days = ttl_days,
         images_html = images_html,
@@ -2139,6 +2354,8 @@ async fn main() {
             "/share/{id}/{file}",
             get(share_file).options(share_file_options),
         )
+        .route("/static/recents.css", get(static_recents_css))
+        .route("/static/recents.js", get(static_recents_js))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
