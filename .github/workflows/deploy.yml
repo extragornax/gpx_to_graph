@@ -1,4 +1,4 @@
-# Deploys madcap_fast to a remote server over SSH on every push to master.
+# Deploys madcap_fast to a remote server over SSH on every push to main.
 #
 # Secrets required (Repo → Settings → Secrets and variables → Actions → Secrets):
 #   DEPLOY_HOST    — hostname or IP of the target server (e.g. extragornax.fr)
@@ -24,7 +24,7 @@ name: Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -49,8 +49,8 @@ jobs:
             cd "${{ vars.DEPLOY_PATH || '/srv/madcap_fast' }}"
             echo "== Pulling latest =="
             git fetch --prune origin
-            git checkout master
-            git pull --ff-only origin master
+            git checkout main
+            git pull --ff-only origin main
             echo "== Rebuilding container =="
             docker compose up -d --build
             echo "== Waiting for healthy =="
