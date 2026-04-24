@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=builder /app/target/release/server /usr/local/bin/server
 
 ENV PORT=3000
+ENV GPX_SHARE_DIR=/data/shares
+RUN mkdir -p /data/shares
+VOLUME ["/data/shares"]
 EXPOSE 3000
 
 CMD ["server"]

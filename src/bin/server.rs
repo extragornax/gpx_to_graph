@@ -57,9 +57,11 @@ fn is_safe_filename(s: &str) -> bool {
 
 /// Resolve the public base URL (e.g. `https://example.com`).
 ///
-/// `PUBLIC_BASE_URL` env wins if set; otherwise we derive it from the request
-/// headers, honouring `X-Forwarded-Proto` / `X-Forwarded-Host` so the link is
-/// correct behind a reverse proxy.
+/// `PUBLIC_BASE_URL` env wins if set. Otherwise we derive it from request
+/// headers (`X-Forwarded-Proto` / `X-Forwarded-Host` for reverse proxies,
+/// then `Host`). When the proto can't be determined we default to `https`
+/// for any non-local host, so links to e.g. `gpx.studio` stay HTTPS-only
+/// even behind a Caddy/Nginx that forgets `X-Forwarded-Proto`.
 fn public_base_url(headers: &HeaderMap) -> String {
     if let Ok(env_url) = std::env::var("PUBLIC_BASE_URL") {
         let trimmed = env_url.trim_end_matches('/').to_string();
@@ -72,11 +74,22 @@ fn public_base_url(headers: &HeaderMap) -> String {
         .or_else(|| headers.get(header::HOST))
         .and_then(|h| h.to_str().ok())
         .unwrap_or("localhost");
+    let host_no_port = host.split(':').next().unwrap_or(host);
+    let is_local = host_no_port == "localhost"
+        || host_no_port == "::1"
+        || host_no_port == "0.0.0.0"
+        || host_no_port.starts_with("127.");
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim())
-        .unwrap_or("http");
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        .unwrap_or_else(|| {
+            if is_local {
+                "http".to_string()
+            } else {
+                "https".to_string()
+            }
+        });
     format!("{scheme}://{host}")
 }
 
@@ -1159,7 +1172,20 @@ async fn share_file(AxumPath((id, file)): AxumPath<(String, String)>) -> Respons
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
+        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Content-Length, Content-Type")
         .body(Body::from(bytes))
+        .expect("valid response")
+}
+
+async fn share_file_options() -> Response {
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
+        .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "*")
+        .header(header::ACCESS_CONTROL_MAX_AGE, "86400")
+        .body(Body::empty())
         .expect("valid response")
 }
 
@@ -2101,7 +2127,10 @@ async fn main() {
         .route("/generate", post(generate_handler))
         .route("/merge", post(merge_handler))
         .route("/share/{id}", get(share_page))
-        .route("/share/{id}/{file}", get(share_file))
+        .route(
+            "/share/{id}/{file}",
+            get(share_file).options(share_file_options),
+        )
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
