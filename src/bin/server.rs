@@ -980,19 +980,28 @@ const RECENTS_JS: &str = r##"
     sidebar.hidden = false;
     var currentId = (window.__recentCurrent && window.__recentCurrent.id) || null;
     ul.innerHTML = '';
+    function escape(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
     list.forEach(function (item) {
       var li = document.createElement('li');
       li.className = 'rx-item' + (item.id === currentId ? ' active' : '');
       var a = document.createElement('a');
       a.href = '/share/' + encodeURIComponent(item.id);
-      var km = (item.total_km != null) ? Number(item.total_km).toFixed(1) + ' km' : 'Route';
+      var km = (item.total_km != null) ? Number(item.total_km).toFixed(1) + ' km' : '';
+      var title = (item.name && String(item.name).trim()) ? String(item.name).trim() : (km || 'Route');
       var climbs = (item.num_climbs != null) ? (item.num_climbs + ' climbs') : '';
       var cps = (item.num_checkpoints != null) ? (item.num_checkpoints + ' cps') : '';
-      var extra = [cps, climbs].filter(Boolean).join(' · ');
+      var subParts = [];
+      if (item.name && km) subParts.push(km);
+      subParts.push(relTime(item.created_at));
+      if (cps) subParts.push(cps);
+      if (climbs) subParts.push(climbs);
       a.innerHTML =
-        '<div class="rx-itm-title">' + km + '</div>' +
-        '<div class="rx-itm-sub">' + relTime(item.created_at) +
-        (extra ? ' · ' + extra : '') + '</div>';
+        '<div class="rx-itm-title">' + escape(title) + '</div>' +
+        '<div class="rx-itm-sub">' + subParts.filter(Boolean).join(' · ') + '</div>';
       li.appendChild(a);
       ul.appendChild(li);
     });
@@ -1222,6 +1231,38 @@ async fn generate_handler(mut multipart: Multipart) -> Response {
     }
 }
 
+/// Best-effort GPX route name: `<metadata><name>` first, then the first
+/// `<trk><name>`, then None. Trimmed, length-capped.
+fn extract_gpx_name(data: &[u8]) -> Option<String> {
+    fn clean(s: String) -> Option<String> {
+        let t = s.trim();
+        if t.is_empty() {
+            return None;
+        }
+        Some(t.chars().take(200).collect())
+    }
+
+    if let (Some(start), Some(end)) = (
+        find_after(data, b"<metadata", 0),
+        find_after(data, b"</metadata>", 0),
+    ) {
+        if end > start {
+            if let Some(n) = extract_tag_text(&data[start..end], b"name").and_then(clean) {
+                return Some(n);
+            }
+        }
+    }
+    if let Some(trk) = find_after(data, b"<trk", 0) {
+        if let Some(gt) = find_after(data, b">", trk) {
+            let rest = &data[gt + 1..];
+            if let Some(n) = extract_tag_text(rest, b"name").and_then(clean) {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
 async fn save_share(gpx_bytes: &[u8], output: &GeneratedOutput) -> Result<String, String> {
     let id = random_id();
     let dir = share_dir().join(&id);
@@ -1232,6 +1273,8 @@ async fn save_share(gpx_bytes: &[u8], output: &GeneratedOutput) -> Result<String
     tokio::fs::write(dir.join("source.gpx"), gpx_bytes)
         .await
         .map_err(|e| format!("write source.gpx: {e}"))?;
+
+    let name = extract_gpx_name(gpx_bytes);
 
     let mut images_meta: Vec<Value> = Vec::new();
     for (i, (label, bytes)) in output.graph_images.iter().enumerate() {
@@ -1259,6 +1302,7 @@ async fn save_share(gpx_bytes: &[u8], output: &GeneratedOutput) -> Result<String
 
     let meta = json!({
         "created_at": created_at,
+        "name": name,
         "total_km": output.total_km,
         "num_checkpoints": output.num_checkpoints,
         "num_climbs": output.num_climbs,
@@ -1400,6 +1444,11 @@ fn url_encode(s: &str) -> String {
 }
 
 fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
+    let name = meta
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .unwrap_or_default();
     let total_km = meta.get("total_km").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let num_checkpoints = meta
         .get("num_checkpoints")
@@ -1450,7 +1499,17 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
         url_encode(&format!("[\"{}\"]", gpx_abs.replace('"', "\\\"")))
     );
 
-    let og_title = format!("GPX route — {total_km:.1} km");
+    let og_title = if name.is_empty() {
+        format!("GPX route — {total_km:.1} km")
+    } else {
+        format!("{name} — {total_km:.1} km")
+    };
+    let name_html = if name.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<p class="route-name">{}</p>"#, html_escape(&name))
+    };
+    let name_json = serde_json::to_string(&name).unwrap_or_else(|_| "\"\"".to_string());
     let og_description = format!("{num_checkpoints} checkpoints · {num_climbs} climbs");
     let og_meta = if og_image_abs.is_empty() {
         String::new()
@@ -1526,6 +1585,13 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   }}
   .container {{ max-width: 900px; margin: 0 auto; }}
   h1 {{ font-size: 1.75rem; font-weight: 700; margin: 0 0 0.25rem; }}
+  .route-name {{
+    margin: 0 0 1rem;
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: #4b5563;
+    word-break: break-word;
+  }}
   .back-link {{
     display: inline-block;
     margin-bottom: 1.5rem;
@@ -1624,6 +1690,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 </aside>
 <div class="container">
   <h1>Generated Profile</h1>
+  {name_html}
   <a class="back-link" href="/">&larr; Generate another</a>
 
   <div class="card result-banner">
@@ -1673,6 +1740,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   }});
   window.__recentCurrent = {{
     id: {id_json},
+    name: {name_json},
     total_km: {total_km},
     num_checkpoints: {num_checkpoints},
     num_climbs: {num_climbs},
@@ -1684,6 +1752,8 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 </html>"#,
         id = id,
         id_json = serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string()),
+        name_html = name_html,
+        name_json = name_json,
         total_km = total_km,
         num_checkpoints = num_checkpoints,
         num_climbs = num_climbs,
