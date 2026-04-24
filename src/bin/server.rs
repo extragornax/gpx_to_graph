@@ -1344,13 +1344,13 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     font-size: 0.8rem; color: #666;
     text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.2rem;
   }}
-  .share-banner {{
+  .result-banner {{
     display: flex; flex-direction: column; gap: 0.6rem;
     border: 1px solid #dbeafe; background: #eff6ff;
   }}
-  .share-banner .share-title {{ font-weight: 700; font-size: 0.95rem; color: #1e3a8a; }}
-  .share-banner .share-row {{ display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }}
-  .share-banner input[type="text"] {{
+  .result-banner .banner-title {{ font-weight: 700; font-size: 0.95rem; color: #1e3a8a; }}
+  .result-banner .banner-row {{ display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }}
+  .result-banner input[type="text"] {{
     flex: 1 1 260px;
     min-width: 0;
     padding: 0.55rem 0.75rem;
@@ -1360,7 +1360,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     background: #fff;
     color: #111;
   }}
-  .share-banner button {{
+  .result-banner button {{
     padding: 0.55rem 0.9rem;
     background: #2563eb;
     color: #fff;
@@ -1370,11 +1370,11 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     font-weight: 600;
     font-size: 0.9rem;
   }}
-  .share-banner button:hover {{ background: #1d4ed8; }}
-  .share-banner .ttl-note {{ font-size: 0.82rem; color: #4b5563; margin: 0; }}
-  .share-banner a {{ color: #2563eb; font-weight: 600; text-decoration: none; font-size: 0.9rem; }}
-  .share-banner a:hover {{ text-decoration: underline; }}
-  .share-banner a.btn-link {{
+  .result-banner button:hover {{ background: #1d4ed8; }}
+  .result-banner .ttl-note {{ font-size: 0.82rem; color: #4b5563; margin: 0; }}
+  .result-banner a {{ color: #2563eb; font-weight: 600; text-decoration: none; font-size: 0.9rem; }}
+  .result-banner a:hover {{ text-decoration: underline; }}
+  .result-banner a.btn-link {{
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -1388,7 +1388,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
     text-decoration: none;
     white-space: nowrap;
   }}
-  .share-banner a.btn-link:hover {{ background: #eff6ff; text-decoration: none; }}
+  .result-banner a.btn-link:hover {{ background: #eff6ff; text-decoration: none; }}
   .image-card {{
     background: #fff;
     border-radius: 12px;
@@ -1414,10 +1414,10 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   <h1>Generated Profile</h1>
   <a class="back-link" href="/">&larr; Generate another</a>
 
-  <div class="card share-banner">
-    <div class="share-title">Share this result</div>
-    <div class="share-row">
-      <input type="text" id="shareUrl" readonly>
+  <div class="card result-banner">
+    <div class="banner-title">Share this result</div>
+    <div class="banner-row">
+      <input type="text" id="resultUrl" readonly>
       <button id="copyBtn" type="button">Copy link</button>
       <a class="btn-link" href="{gpx_studio_url}" target="_blank" rel="noopener">Open in gpx.studio &rarr;</a>
     </div>
@@ -1445,14 +1445,14 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   {images_html}
 </div>
 <script>
-  var shareInput = document.getElementById('shareUrl');
-  shareInput.value = window.location.href;
+  var urlInput = document.getElementById('resultUrl');
+  urlInput.value = window.location.href;
   document.getElementById('copyBtn').addEventListener('click', async function () {{
     var btn = this;
     try {{
-      await navigator.clipboard.writeText(shareInput.value);
+      await navigator.clipboard.writeText(urlInput.value);
     }} catch (e) {{
-      shareInput.select();
+      urlInput.select();
       document.execCommand('copy');
     }}
     var prev = btn.textContent;
