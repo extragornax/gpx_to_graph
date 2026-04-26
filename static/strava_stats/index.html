@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strava Stats</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #08080a;
+      --bg-surface: #111114;
+      --bg-elevated: #19191e;
+      --bg-hover: #1f1f26;
+      --border: #24242c;
+      --border-light: #2e2e38;
+      --text-primary: #eae8e3;
+      --text-secondary: #8a8895;
+      --text-muted: #55535e;
+      --accent: #fc4c02;
+      --accent-glow: rgba(252, 76, 2, 0.15);
+      --accent-dim: #c23d02;
+      --green: #34d399;
+      --blue: #60a5fa;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --font-display: 'Bebas Neue', sans-serif;
+      --font-body: 'Outfit', sans-serif;
+      --font-mono: 'Space Mono', monospace;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% -20%, rgba(252, 76, 2, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(96, 165, 250, 0.03) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    ::selection { background: var(--accent); color: #fff; }
+
+    /* --- Layout --- */
+    .shell { position: relative; z-index: 1; }
+
+    .topbar {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8, 8, 10, 0.85);
+      backdrop-filter: blur(20px) saturate(1.5);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+
+    .topbar-brand {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .topbar-brand svg { width: 22px; height: 22px; }
+
+    .topbar-nav { display: flex; gap: 2px; }
+
+    .nav-btn {
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .nav-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+    .nav-btn.active { color: var(--accent); background: var(--accent-glow); }
+
+    .topbar-filters {
+      display: flex; gap: 8px; align-items: center;
+    }
+
+    .filter-select {
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      padding: 5px 28px 5px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2355535e'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      transition: border-color 0.15s;
+    }
+
+    .filter-select:hover { border-color: var(--border-light); }
+    .filter-select:focus { outline: none; border-color: var(--accent); }
+
+    .main { padding: 28px 32px 60px; max-width: 1400px; margin: 0 auto; }
+
+    .page { display: none; animation: fadeUp 0.35s ease both; }
+    .page.active { display: block; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* --- Upload Overlay --- */
+    .upload-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-deep);
+      transition: opacity 0.5s ease, visibility 0.5s;
+    }
+
+    .upload-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    .upload-card {
+      width: 520px;
+      text-align: center;
+      animation: floatIn 0.6s ease both;
+    }
+
+    @keyframes floatIn {
+      from { opacity: 0; transform: translateY(30px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .upload-logo {
+      font-family: var(--font-display);
+      font-size: 3.5rem;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .upload-sub {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 36px;
+      font-weight: 300;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border-light);
+      border-radius: 16px;
+      padding: 56px 40px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .drop-zone::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at center, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--accent);
+    }
+
+    .drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
+
+    .drop-zone input { display: none; }
+
+    .drop-icon {
+      width: 48px; height: 48px;
+      margin: 0 auto 16px;
+      opacity: 0.4;
+    }
+
+    .drop-text {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      position: relative;
+    }
+
+    .drop-text strong { color: var(--accent); font-weight: 600; }
+
+    .drop-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .upload-status {
+      margin-top: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--accent);
+      min-height: 24px;
+    }
+
+    .upload-status.error { color: var(--red); }
+
+    /* --- Stat Cards --- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 16px 14px;
+      transition: border-color 0.2s, transform 0.2s;
+      animation: cardIn 0.4s ease both;
+    }
+
+    .stat-card:hover { border-color: var(--border-light); transform: translateY(-1px); }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .stat-label {
+      font-size: 0.68rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      letter-spacing: 0.03em;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .stat-unit {
+      font-family: var(--font-body);
+      font-size: 0.72rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin-left: 4px;
+      letter-spacing: 0;
+    }
+
+    .stat-card.accent .stat-value { color: var(--accent); }
+    .stat-card.green .stat-value { color: var(--green); }
+
+    /* --- Section panels --- */
+    .panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 1.3rem;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+    }
+
+    /* --- Gear bars --- */
+    .gear-row {
+      display: grid;
+      grid-template-columns: 130px 1fr 160px;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .gear-row:last-child { border-bottom: none; }
+
+    .gear-name {
+      font-size: 0.82rem;
+      font-weight: 500;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .gear-track {
+      height: 24px;
+      background: var(--bg-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .gear-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-dim));
+      border-radius: 4px;
+      min-width: 4px;
+      transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .gear-meta {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+    }
+
+    /* --- Tables --- */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .data-table th {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-light);
+      text-align: left;
+      position: sticky;
+      top: 56px;
+      background: var(--bg-surface);
+    }
+
+    .data-table td {
+      font-size: 0.82rem;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .data-table tr:hover td { background: var(--bg-hover); color: var(--text-primary); }
+
+    .data-table td.num {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .data-table td.name-cell {
+      color: var(--text-primary);
+      font-weight: 500;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .data-table .year-cell {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      color: var(--text-primary);
+      letter-spacing: 0.04em;
+    }
+
+    /* --- Personal Bests --- */
+    .pb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .pb-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .pb-card:hover { border-color: var(--accent); }
+
+    .pb-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .pb-card:hover::after { opacity: 1; }
+
+    .pb-category {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .pb-value {
+      font-family: var(--font-display);
+      font-size: 2.4rem;
+      color: var(--accent);
+      letter-spacing: 0.03em;
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+
+    .pb-value .pb-unit {
+      font-family: var(--font-body);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 4px;
+      letter-spacing: 0;
+    }
+
+    .pb-name {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .pb-date {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* --- SVG Charts --- */
+    .chart-container {
+      width: 100%;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+
+    .chart-container svg { display: block; width: 100%; }
+
+    .chart-line {
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+
+    .chart-area { opacity: 0.12; }
+    .chart-grid line { stroke: var(--border); stroke-width: 0.5; }
+    .chart-label { font-family: var(--font-mono); font-size: 9px; fill: var(--text-muted); }
+
+    /* --- Pagination --- */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .page-btn {
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .page-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .page-info {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    /* --- Training fitness cards --- */
+    .fitness-trio {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .fitness-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+    }
+
+    .fitness-card .fc-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .fitness-card .fc-value {
+      font-family: var(--font-display);
+      font-size: 3rem;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    .fitness-card .fc-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .fc-ctl .fc-value { color: var(--blue); }
+    .fc-atl .fc-value { color: var(--amber); }
+    .fc-tsb .fc-value { color: var(--green); }
+
+    /* --- Wind rose polar chart --- */
+    .wind-rose-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 16px 0;
+    }
+
+    .wind-rose-wrap svg text {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      fill: var(--text-muted);
+    }
+
+    /* --- 2-column layout --- */
+    .cols-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* --- Loading skeleton --- */
+    .skeleton {
+      min-height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .skeleton::after {
+      content: '';
+      width: 24px; height: 24px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-left: 10px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* --- Responsive --- */
+    @media (max-width: 900px) {
+      .topbar { padding: 0 16px; flex-wrap: wrap; height: auto; padding: 10px 16px; gap: 8px; }
+      .topbar-nav { overflow-x: auto; }
+      .main { padding: 20px 16px; }
+      .cols-2 { grid-template-columns: 1fr; }
+      .fitness-trio { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    }
+
+    @media (max-width: 600px) {
+      .topbar-filters { display: none; }
+      .gear-row { grid-template-columns: 90px 1fr; }
+      .gear-meta { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Upload overlay -->
+<div class="upload-overlay" id="upload-overlay">
+  <div class="upload-card">
+    <div class="upload-logo">STRAVA STATS</div>
+    <div class="upload-sub">Personal cycling analytics observatory</div>
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".csv">
+      <svg class="drop-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted)">
+        <path d="M24 32V12M24 12L16 20M24 12L32 20"/>
+        <path d="M8 36h32"/>
+      </svg>
+      <div class="drop-text">Drop <strong>activities.csv</strong> or click to browse</div>
+      <div class="drop-hint">Strava data export &middot; CSV format</div>
+    </div>
+    <div class="upload-status" id="upload-status"></div>
+  </div>
+</div>
+
+<!-- App shell -->
+<div class="shell" id="shell" style="display:none">
+  <div class="topbar">
+    <div class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 2,22 8,22 12,14 16,22 22,22"/></svg>
+      STRAVA STATS
+    </div>
+    <div class="topbar-nav" id="topbar-nav">
+      <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+      <button class="nav-btn" data-page="yearly">Yearly</button>
+      <button class="nav-btn" data-page="bests">Bests</button>
+      <button class="nav-btn" data-page="activities">Activities</button>
+      <button class="nav-btn" data-page="training">Training</button>
+      <button class="nav-btn" data-page="weather">Weather</button>
+    </div>
+    <div class="topbar-filters">
+      <select class="filter-select" id="filter-type"><option value="">All types</option></select>
+      <select class="filter-select" id="filter-year"><option value="">All years</option></select>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page active" id="page-dashboard"></div>
+    <div class="page" id="page-yearly"></div>
+    <div class="page" id="page-bests"></div>
+    <div class="page" id="page-activities"></div>
+    <div class="page" id="page-training"></div>
+    <div class="page" id="page-weather"></div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+
+// ─── Upload ───
+const overlay = document.getElementById('upload-overlay');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const uploadStatus = document.getElementById('upload-status');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); doUpload(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) doUpload(fileInput.files[0]); });
+
+async function doUpload(file) {
+  uploadStatus.className = 'upload-status';
+  uploadStatus.textContent = 'Parsing activities...';
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch(`${API}/upload`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    uploadStatus.textContent = `${data.activities_loaded} activities loaded`;
+    initApp(data);
+  } catch (e) {
+    uploadStatus.className = 'upload-status error';
+    uploadStatus.textContent = e.message;
+  }
+}
+
+function initApp(data) {
+  // Populate filters
+  const typeSelect = document.getElementById('filter-type');
+  typeSelect.innerHTML = '<option value="">All types</option>';
+  Object.entries(data.activity_types).sort((a, b) => b[1] - a[1]).forEach(([t, c]) => {
+    typeSelect.innerHTML += `<option value="${t}">${t} (${c})</option>`;
+  });
+  if (data.activity_types['Ride']) typeSelect.value = 'Ride';
+
+  const from = parseInt(data.date_range.from);
+  const to = parseInt(data.date_range.to);
+  const yearSelect = document.getElementById('filter-year');
+  yearSelect.innerHTML = '<option value="">All years</option>';
+  for (let y = to; y >= from; y--) yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
+
+  typeSelect.addEventListener('change', reloadPage);
+  yearSelect.addEventListener('change', reloadPage);
+
+  // Transition to app
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    document.getElementById('shell').style.display = '';
+    loadPage('dashboard');
+  }, 400);
+}
+
+// ─── Routing ───
+function filterQS() {
+  const p = new URLSearchParams();
+  const t = document.getElementById('filter-type').value;
+  const y = document.getElementById('filter-year').value;
+  if (t) p.set('activity_type', t);
+  if (y) { p.set('from', `${y}-01-01`); p.set('to', `${y}-12-31`); }
+  return p.toString();
+}
+
+async function apiFetch(path) {
+  const qs = filterQS();
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`${API}${path}${qs ? sep + qs : ''}`);
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+  return res.json();
+}
+
+let currentPage = 'dashboard';
+
+document.getElementById('topbar-nav').addEventListener('click', e => {
+  const btn = e.target.closest('.nav-btn');
+  if (!btn) return;
+  const id = btn.dataset.page;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(`page-${id}`).classList.add('active');
+  currentPage = id;
+  loadPage(id);
+});
+
+function reloadPage() { loadPage(currentPage); }
+
+async function loadPage(id) {
+  const el = document.getElementById(`page-${id}`);
+  el.innerHTML = '<div class="skeleton">Loading</div>';
+  try {
+    switch (id) {
+      case 'dashboard': await renderDashboard(el); break;
+      case 'yearly': await renderYearly(el); break;
+      case 'bests': await renderBests(el); break;
+      case 'activities': await renderActivities(el); break;
+      case 'training': await renderTraining(el); break;
+      case 'weather': await renderWeather(el); break;
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="panel" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+// ─── Helpers ───
+function n(v, d = 1) { return v == null ? '-' : Number(v).toFixed(d); }
+function n0(v) { return n(v, 0); }
+function dur(h) {
+  if (h == null) return '-';
+  const hrs = Math.floor(h);
+  const min = Math.round((h - hrs) * 60);
+  return `${hrs}h${String(min).padStart(2, '0')}`;
+}
+
+function card(label, value, unit = '', cls = '') {
+  return `<div class="stat-card ${cls}">
+    <div class="stat-label">${label}</div>
+    <div class="stat-value">${value}<span class="stat-unit">${unit}</span></div>
+  </div>`;
+}
+
+function stagger(idx) {
+  return `animation-delay:${idx * 40}ms`;
+}
+
+// ─── Dashboard ───
+async function renderDashboard(el) {
+  const [summary, streaks] = await Promise.all([
+    apiFetch('/dashboard/summary'),
+    apiFetch('/dashboard/streaks'),
+  ]);
+
+  let h = '<div class="stats-grid">';
+  const cards = [
+    ['Activities', summary.total_activities, ''],
+    ['Distance', n0(summary.total_distance_km), 'km'],
+    ['Moving Time', dur(summary.total_moving_time_hours), ''],
+    ['Elevation', n0(summary.total_elevation_m), 'm'],
+    ['Calories', n0(summary.total_calories), 'kcal'],
+    ['Avg Speed', n(summary.avg_speed_kmh), 'km/h'],
+    ['Avg HR', n0(summary.avg_heart_rate), 'bpm'],
+    ['Avg Power', n0(summary.avg_watts), 'W'],
+    ['Longest Ride', n(summary.longest_ride_km), 'km', 'accent'],
+    ['Max Elevation', n0(summary.max_elevation_gain_m), 'm'],
+    ['Max Speed', n(summary.max_speed_kmh), 'km/h'],
+    ['Active Days', streaks.total_active_days, '', 'green'],
+    ['Current Streak', streaks.current_streak_days, 'days'],
+    ['Best Streak', streaks.longest_streak_days, 'days'],
+  ];
+  cards.forEach(([lbl, val, unit, cls], i) => {
+    h += `<div class="stat-card ${cls || ''}" style="${stagger(i)}">
+      <div class="stat-label">${lbl}</div>
+      <div class="stat-value">${val}<span class="stat-unit">${unit}</span></div>
+    </div>`;
+  });
+  h += '</div>';
+
+  if (summary.gear_breakdown.length) {
+    const maxD = Math.max(...summary.gear_breakdown.map(g => g.distance_km));
+    h += '<div class="panel"><div class="panel-title">FLEET</div>';
+    summary.gear_breakdown.forEach(g => {
+      const pct = (g.distance_km / maxD * 100).toFixed(1);
+      h += `<div class="gear-row">
+        <div class="gear-name" title="${g.gear}">${g.gear}</div>
+        <div class="gear-track"><div class="gear-fill" style="width:${pct}%"></div></div>
+        <div class="gear-meta">${g.count} rides / ${n0(g.distance_km)} km</div>
+      </div>`;
+    });
+    h += '</div>';
+  }
+
+  el.innerHTML = h;
+}
+
+// ─── Yearly ───
+async function renderYearly(el) {
+  const years = await apiFetch('/dashboard/yearly');
+  years.reverse();
+
+  let h = '<div class="panel"><div class="panel-title">YEAR OVER YEAR</div>';
+  h += '<div style="overflow-x:auto"><table class="data-table"><thead><tr>';
+  h += '<th>Year</th><th>Rides</th><th>Distance</th><th>Time</th><th>Elevation</th><th>Speed</th><th>HR</th><th>Power</th><th>Longest</th><th>Days</th>';
+  h += '</tr></thead><tbody>';
+  years.forEach(y => {
+    h += `<tr>
+      <td class="year-cell">${y.year}</td>
+      <td class="num">${y.total_activities}</td>
+      <td class="num">${n0(y.total_distance_km)} km</td>
+      <td class="num">${dur(y.total_moving_time_hours)}</td>
+      <td class="num">${n0(y.total_elevation_m)} m</td>
+      <td class="num">${n(y.avg_speed_kmh)}</td>
+      <td class="num">${y.avg_heart_rate != null ? n0(y.avg_heart_rate) : '-'}</td>
+      <td class="num">${y.avg_watts != null ? n0(y.avg_watts) + 'W' : '-'}</td>
+      <td class="num">${n(y.longest_ride_km)} km</td>
+      <td class="num">${y.ride_days}</td>
+    </tr>`;
+  });
+  h += '</tbody></table></div></div>';
+  el.innerHTML = h;
+}
+
+// ─── Personal Bests ───
+async function renderBests(el) {
+  const pb = await apiFetch('/performance/personal_bests');
+  const items = [
+    ['Longest Distance', pb.longest_distance_km, 'km'],
+    ['Most Elevation', pb.most_elevation_m, 'm'],
+    ['Fastest Avg Speed', pb.fastest_avg_speed_kmh, 'km/h'],
+    ['Highest Avg Power', pb.highest_avg_watts, 'W'],
+    ['Longest Ride', pb.longest_moving_time_hours, 'h'],
+    ['Most Calories', pb.most_calories, 'kcal'],
+    ['Highest Max HR', pb.highest_heart_rate_bpm, 'bpm'],
+  ];
+
+  let h = '<div class="pb-grid">';
+  items.forEach(([cat, data, unit], i) => {
+    if (!data) {
+      h += `<div class="pb-card" style="${stagger(i)}"><div class="pb-category">${cat}</div><div class="pb-value">-</div></div>`;
+      return;
+    }
+    h += `<div class="pb-card" style="${stagger(i)}">
+      <div class="pb-category">${cat}</div>
+      <div class="pb-value">${n(data.value)}<span class="pb-unit">${unit}</span></div>
+      <div class="pb-name">${data.activity_name}</div>
+      <div class="pb-date">${data.date}</div>
+    </div>`;
+  });
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+// ─── Activities ───
+async function renderActivities(el, page = 1) {
+  const data = await apiFetch(`/activities?page=${page}&per_page=40`);
+  let h = '<div class="panel"><div class="panel-title">' + data.total + ' ACTIVITIES</div>';
+  h += '<div style="overflow-x:auto"><table class="data-table"><thead><tr>';
+  h += '<th>Date</th><th>Name</th><th>Type</th><th>Distance</th><th>Time</th><th>Speed</th><th>HR</th><th>Power</th><th>Gear</th>';
+  h += '</tr></thead><tbody>';
+  data.activities.forEach(a => {
+    h += `<tr>
+      <td class="num">${a.date.slice(0, 10)}</td>
+      <td class="name-cell" title="${a.name}">${a.name}</td>
+      <td>${a.activity_type}</td>
+      <td class="num">${n(a.distance_km)} km</td>
+      <td class="num">${dur(a.moving_time_seconds / 3600)}</td>
+      <td class="num">${n(a.average_speed_kmh)}</td>
+      <td class="num">${a.average_heart_rate ? n0(a.average_heart_rate) : '-'}</td>
+      <td class="num">${a.average_watts ? n0(a.average_watts) + 'W' : '-'}</td>
+      <td>${a.gear_name || '-'}</td>
+    </tr>`;
+  });
+  h += '</tbody></table></div>';
+
+  const totalPages = Math.ceil(data.total / data.per_page);
+  if (totalPages > 1) {
+    h += '<div class="pagination">';
+    if (page > 1) h += `<button class="page-btn" onclick="navActivities(${page - 1})">Prev</button>`;
+    h += `<span class="page-info">${page} / ${totalPages}</span>`;
+    if (page < totalPages) h += `<button class="page-btn" onclick="navActivities(${page + 1})">Next</button>`;
+    h += '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+window.navActivities = p => renderActivities(document.getElementById('page-activities'), p);
+
+// ─── Training ───
+async function renderTraining(el) {
+  const [ff, weekly] = await Promise.all([
+    apiFetch('/training/fitness_fatigue'),
+    apiFetch('/training/weekly'),
+  ]);
+
+  // CTL / ATL / TSB cards
+  let h = '<div class="fitness-trio">';
+  h += `<div class="fitness-card fc-ctl"><div class="fc-label">Fitness (CTL)</div><div class="fc-value">${n(ff.current.fitness_ctl)}</div><div class="fc-sub">42-day chronic load</div></div>`;
+  h += `<div class="fitness-card fc-atl"><div class="fc-label">Fatigue (ATL)</div><div class="fc-value">${n(ff.current.fatigue_atl)}</div><div class="fc-sub">7-day acute load</div></div>`;
+  h += `<div class="fitness-card fc-tsb"><div class="fc-label">Form (TSB)</div><div class="fc-value">${n(ff.current.form_tsb)}</div><div class="fc-sub">${ff.current.form_tsb >= 0 ? 'Fresh' : 'Fatigued'}</div></div>`;
+  h += '</div>';
+
+  // Fitness chart
+  if (ff.history.length > 1) {
+    h += '<div class="panel"><div class="panel-title">FITNESS / FATIGUE HISTORY</div>';
+    h += '<div class="chart-container">' + buildFitnessChart(ff.history.slice(-180)) + '</div>';
+    h += '</div>';
+  }
+
+  // Weekly table
+  const recent = weekly.slice(-16).reverse();
+  h += '<div class="panel"><div class="panel-title">RECENT WEEKS</div>';
+  h += '<table class="data-table"><thead><tr>';
+  h += '<th>Week</th><th>Rides</th><th>Distance</th><th>Time</th><th>Elevation</th><th>Effort</th>';
+  h += '</tr></thead><tbody>';
+  recent.forEach(w => {
+    h += `<tr>
+      <td class="num">${w.week_start}</td>
+      <td class="num">${w.activity_count}</td>
+      <td class="num">${n0(w.total_distance_km)} km</td>
+      <td class="num">${dur(w.total_moving_time_hours)}</td>
+      <td class="num">${n0(w.total_elevation_m)} m</td>
+      <td class="num">${n0(w.total_relative_effort)}</td>
+    </tr>`;
+  });
+  h += '</tbody></table></div>';
+  el.innerHTML = h;
+}
+
+function buildFitnessChart(data) {
+  const W = 900, H = 200, PAD = { t: 10, r: 10, b: 24, l: 40 };
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+
+  const allVals = data.flatMap(d => [d.ctl, d.atl, d.tsb]);
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
+  const range = maxV - minV || 1;
+
+  const x = i => PAD.l + (i / (data.length - 1)) * cw;
+  const y = v => PAD.t + ch - ((v - minV) / range) * ch;
+
+  const line = (arr, key) => arr.map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join('');
+  const area = (arr, key) => line(arr, key) + `L${x(arr.length - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z`;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+
+  // Zero line
+  if (minV < 0 && maxV > 0) {
+    svg += `<line x1="${PAD.l}" y1="${y(0).toFixed(1)}" x2="${W - PAD.r}" y2="${y(0).toFixed(1)}" stroke="var(--border-light)" stroke-width="0.5" stroke-dasharray="4,4"/>`;
+  }
+
+  // Areas
+  svg += `<path d="${area(data, 'ctl')}" fill="var(--blue)" class="chart-area"/>`;
+  svg += `<path d="${area(data, 'atl')}" fill="var(--amber)" class="chart-area"/>`;
+
+  // Lines
+  svg += `<path d="${line(data, 'ctl')}" class="chart-line" stroke="var(--blue)"/>`;
+  svg += `<path d="${line(data, 'atl')}" class="chart-line" stroke="var(--amber)"/>`;
+  svg += `<path d="${line(data, 'tsb')}" class="chart-line" stroke="var(--green)" stroke-dasharray="3,3"/>`;
+
+  // X labels (every ~30 points)
+  const step = Math.max(1, Math.floor(data.length / 6));
+  for (let i = 0; i < data.length; i += step) {
+    svg += `<text x="${x(i).toFixed(1)}" y="${H - 4}" class="chart-label" text-anchor="middle">${data[i].date.slice(5)}</text>`;
+  }
+
+  // Y labels
+  const ySteps = 4;
+  for (let i = 0; i <= ySteps; i++) {
+    const v = minV + (range / ySteps) * i;
+    svg += `<text x="${PAD.l - 6}" y="${y(v).toFixed(1)}" class="chart-label" text-anchor="end" dominant-baseline="middle">${v.toFixed(0)}</text>`;
+  }
+
+  // Legend
+  svg += `<circle cx="${PAD.l + 10}" cy="${PAD.t + 4}" r="3" fill="var(--blue)"/><text x="${PAD.l + 18}" y="${PAD.t + 7}" class="chart-label">CTL</text>`;
+  svg += `<circle cx="${PAD.l + 55}" cy="${PAD.t + 4}" r="3" fill="var(--amber)"/><text x="${PAD.l + 63}" y="${PAD.t + 7}" class="chart-label">ATL</text>`;
+  svg += `<circle cx="${PAD.l + 100}" cy="${PAD.t + 4}" r="3" fill="var(--green)"/><text x="${PAD.l + 108}" y="${PAD.t + 7}" class="chart-label">TSB</text>`;
+
+  svg += '</svg>';
+  return svg;
+}
+
+// ─── Weather ───
+async function renderWeather(el) {
+  const [summary, windRose, corr] = await Promise.all([
+    apiFetch('/weather/summary'),
+    apiFetch('/weather/wind_rose'),
+    apiFetch('/weather/correlation?weather_metric=temperature&performance_metric=speed'),
+  ]);
+
+  let h = '<div class="cols-2">';
+
+  // Wind rose (polar chart)
+  h += '<div class="panel"><div class="panel-title">WIND ROSE</div>';
+  h += '<div class="wind-rose-wrap">' + buildWindRose(windRose) + '</div></div>';
+
+  // Correlation summary
+  h += '<div class="panel"><div class="panel-title">TEMP VS SPEED</div>';
+  if (corr.correlation_coefficient != null) {
+    h += `<div style="margin-bottom:12px"><span style="font-family:var(--font-mono);font-size:0.82rem;color:var(--text-secondary)">r = ${n(corr.correlation_coefficient, 3)}</span>`;
+    if (corr.regression) h += ` <span style="font-size:0.72rem;color:var(--text-muted)">&middot; slope ${n(corr.regression.slope, 4)}</span>`;
+    h += '</div>';
+  }
+  h += '<div class="chart-container">' + buildScatter(corr.data_points) + '</div>';
+  h += '</div>';
+
+  h += '</div>';
+
+  // Temperature table
+  h += '<div class="cols-2">';
+  h += '<div class="panel"><div class="panel-title">BY TEMPERATURE</div>';
+  h += weatherTable(summary.by_temperature);
+  h += '</div>';
+
+  h += '<div class="panel"><div class="panel-title">BY WIND SPEED</div>';
+  h += weatherTable(summary.by_wind_speed);
+  h += '</div>';
+  h += '</div>';
+
+  // Conditions
+  h += '<div class="panel"><div class="panel-title">BY CONDITION</div>';
+  h += '<table class="data-table"><thead><tr><th>Condition</th><th>Speed</th><th>Power</th><th>Rides</th></tr></thead><tbody>';
+  summary.by_condition.sort((a, b) => b.count - a.count).forEach(b => {
+    h += `<tr><td>${b.condition}</td><td class="num">${n(b.avg_speed_kmh)} km/h</td><td class="num">${b.avg_watts ? n0(b.avg_watts) + 'W' : '-'}</td><td class="num">${b.count}</td></tr>`;
+  });
+  h += '</tbody></table></div>';
+
+  el.innerHTML = h;
+}
+
+function weatherTable(buckets) {
+  let h = '<table class="data-table"><thead><tr><th>Range</th><th>Speed</th><th>Power</th><th>Rides</th></tr></thead><tbody>';
+  buckets.forEach(b => {
+    h += `<tr><td>${b.bucket}</td><td class="num">${n(b.avg_speed_kmh)} km/h</td><td class="num">${b.avg_watts ? n0(b.avg_watts) + 'W' : '-'}</td><td class="num">${b.count}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+function buildWindRose(sectors) {
+  const SIZE = 280, CX = SIZE / 2, CY = SIZE / 2, R = SIZE / 2 - 30;
+  const maxCount = Math.max(...sectors.map(s => s.count), 1);
+
+  let svg = `<svg viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">`;
+
+  // Grid circles
+  [0.25, 0.5, 0.75, 1].forEach(f => {
+    svg += `<circle cx="${CX}" cy="${CY}" r="${R * f}" fill="none" stroke="var(--border)" stroke-width="0.5"/>`;
+  });
+
+  // Sectors
+  sectors.forEach(s => {
+    if (s.count === 0) return;
+    const a1 = ((s.bearing_start - 90) * Math.PI) / 180;
+    const a2 = ((s.bearing_end - 90) * Math.PI) / 180;
+    const mid = (a1 + a2) / 2;
+    const r = (s.count / maxCount) * R;
+    const x1 = CX + r * Math.cos(a1);
+    const y1 = CY + r * Math.sin(a1);
+    const x2 = CX + r * Math.cos(a2);
+    const y2 = CY + r * Math.sin(a2);
+    svg += `<path d="M${CX},${CY}L${x1.toFixed(1)},${y1.toFixed(1)}A${r.toFixed(1)},${r.toFixed(1)} 0 0,1 ${x2.toFixed(1)},${y2.toFixed(1)}Z" fill="var(--accent)" opacity="0.6" stroke="var(--bg-surface)" stroke-width="1"/>`;
+  });
+
+  // Labels
+  const dirs = ['N', 'E', 'S', 'W'];
+  const angles = [-90, 0, 90, 180];
+  dirs.forEach((d, i) => {
+    const a = (angles[i] * Math.PI) / 180;
+    const lx = CX + (R + 16) * Math.cos(a);
+    const ly = CY + (R + 16) * Math.sin(a);
+    svg += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" style="font-size:11px;fill:var(--text-secondary);font-weight:600">${d}</text>`;
+  });
+
+  svg += '</svg>';
+  return svg;
+}
+
+function buildScatter(points) {
+  if (points.length < 2) return '<p style="color:var(--text-muted);font-size:0.82rem">Not enough data</p>';
+
+  const W = 420, H = 200, PAD = { t: 10, r: 10, b: 24, l: 40 };
+  const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+
+  const xs = points.map(p => p.weather_value), ys = points.map(p => p.performance_value);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const xR = xMax - xMin || 1, yR = yMax - yMin || 1;
+
+  const px = v => PAD.l + ((v - xMin) / xR) * cw;
+  const py = v => PAD.t + ch - ((v - yMin) / yR) * ch;
+
+  // Downsample if too many points
+  let sampled = points;
+  if (points.length > 300) {
+    const step = Math.ceil(points.length / 300);
+    sampled = points.filter((_, i) => i % step === 0);
+  }
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  sampled.forEach(p => {
+    svg += `<circle cx="${px(p.weather_value).toFixed(1)}" cy="${py(p.performance_value).toFixed(1)}" r="2" fill="var(--accent)" opacity="0.35"/>`;
+  });
+
+  // Axes labels
+  for (let i = 0; i <= 4; i++) {
+    const v = xMin + (xR / 4) * i;
+    svg += `<text x="${px(v).toFixed(1)}" y="${H - 4}" class="chart-label" text-anchor="middle">${v.toFixed(0)}°</text>`;
+  }
+  for (let i = 0; i <= 3; i++) {
+    const v = yMin + (yR / 3) * i;
+    svg += `<text x="${PAD.l - 6}" y="${py(v).toFixed(1)}" class="chart-label" text-anchor="end" dominant-baseline="middle">${v.toFixed(0)}</text>`;
+  }
+
+  svg += '</svg>';
+  return svg;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tokio::sync::broadcast;
+
+use super::db::Ping;
+
+pub struct Channels {
+    inner: Mutex<HashMap<String, broadcast::Sender<Ping>>>,
+}
+
+impl Default for Channels {
+    fn default() -> Self {
+        Self { inner: Mutex::new(HashMap::new()) }
+    }
+}
+
+impl Channels {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_or_create(&self, session_id: &str) -> broadcast::Sender<Ping> {
+        let mut map = self.inner.lock().unwrap();
+        map.entry(session_id.to_string())
+            .or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
+    pub fn remove_if_empty(&self, session_id: &str) {
+        let mut map = self.inner.lock().unwrap();
+        if let Some(tx) = map.get(session_id)
+            && tx.receiver_count() == 0
+        {
+            map.remove(session_id);
+        }
+    }
+}

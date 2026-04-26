@@ -5,6 +5,17 @@ use gpx::read;
 use plotters::coord::Shift;
 use plotters::prelude::*;
 
+#[cfg(feature = "server")]
+pub mod meteo;
+#[cfg(feature = "server")]
+pub mod ravito;
+#[cfg(feature = "server")]
+pub mod trace;
+#[cfg(feature = "server")]
+pub mod strava_stats;
+#[cfg(feature = "server")]
+pub mod col;
+
 // ---------------------------------------------------------------------------
 // Public data types
 // ---------------------------------------------------------------------------

@@ -33,8 +33,8 @@ fn random_id() -> String {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        for i in 0..12 {
-            buf[i] = ((n >> (i * 8)) & 0xff) as u8;
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = ((n >> (i * 8)) & 0xff) as u8;
         }
     }
     URL_SAFE_NO_PAD.encode(buf)
@@ -1245,19 +1245,18 @@ fn extract_gpx_name(data: &[u8]) -> Option<String> {
     if let (Some(start), Some(end)) = (
         find_after(data, b"<metadata", 0),
         find_after(data, b"</metadata>", 0),
-    ) {
-        if end > start {
-            if let Some(n) = extract_tag_text(&data[start..end], b"name").and_then(clean) {
-                return Some(n);
-            }
-        }
+    )
+        && end > start
+        && let Some(n) = extract_tag_text(&data[start..end], b"name").and_then(clean)
+    {
+        return Some(n);
     }
-    if let Some(trk) = find_after(data, b"<trk", 0) {
-        if let Some(gt) = find_after(data, b">", trk) {
-            let rest = &data[gt + 1..];
-            if let Some(n) = extract_tag_text(rest, b"name").and_then(clean) {
-                return Some(n);
-            }
+    if let Some(trk) = find_after(data, b"<trk", 0)
+        && let Some(gt) = find_after(data, b">", trk)
+    {
+        let rest = &data[gt + 1..];
+        if let Some(n) = extract_tag_text(rest, b"name").and_then(clean) {
+            return Some(n);
         }
     }
     None
@@ -1333,36 +1332,32 @@ async fn cleanup_shares() {
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
         let mut old = false;
-        if let Ok(meta_str) = tokio::fs::read_to_string(path.join("meta.json")).await {
-            if let Ok(v) = serde_json::from_str::<Value>(&meta_str) {
-                if let Some(created_at) = v.get("created_at").and_then(|v| v.as_u64()) {
-                    let created =
-                        std::time::UNIX_EPOCH + std::time::Duration::from_secs(created_at);
-                    if now
-                        .duration_since(created)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0)
-                        > SHARE_TTL_SECS
-                    {
-                        old = true;
-                    }
-                }
+        if let Ok(meta_str) = tokio::fs::read_to_string(path.join("meta.json")).await
+            && let Ok(v) = serde_json::from_str::<Value>(&meta_str)
+            && let Some(created_at) = v.get("created_at").and_then(|v| v.as_u64())
+        {
+            let created =
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(created_at);
+            if now
+                .duration_since(created)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                > SHARE_TTL_SECS
+            {
+                old = true;
             }
         }
         // Fallback: mtime.
-        if !old {
-            if let Ok(md) = tokio::fs::metadata(&path).await {
-                if let Ok(modified) = md.modified() {
-                    if now
-                        .duration_since(modified)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0)
-                        > SHARE_TTL_SECS
-                    {
-                        old = true;
-                    }
-                }
-            }
+        if !old
+            && let Ok(md) = tokio::fs::metadata(&path).await
+            && let Ok(modified) = md.modified()
+            && now
+                .duration_since(modified)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                > SHARE_TTL_SECS
+        {
+            old = true;
         }
         if old {
             let _ = tokio::fs::remove_dir_all(&path).await;
@@ -2410,12 +2405,86 @@ async fn merge_handler(mut multipart: Multipart) -> Response {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let port = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(3000);
 
+    // --- Meteo service ---
+    let meteo_db_path = std::env::var("METEO_DB_PATH").unwrap_or_else(|_| "data/meteo.db".into());
+    if let Some(parent) = std::path::Path::new(&meteo_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let meteo_cache = std::sync::Arc::new(
+        gpx_to_graph::meteo::weather::WeatherCache::open(&meteo_db_path)
+            .expect("failed to open meteo cache"),
+    );
+
+    // --- Ravito service ---
+    let ravito_db_path = std::env::var("RAVITO_DB_PATH").unwrap_or_else(|_| "data/ravito.db".into());
+    if let Some(parent) = std::path::Path::new(&ravito_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let overpass_url = std::env::var("OVERPASS_URL")
+        .unwrap_or_else(|_| "https://overpass-api.de/api/interpreter".into());
+    let ravito_cache = std::sync::Arc::new(
+        gpx_to_graph::ravito::overpass::OverpassCache::open(&ravito_db_path, overpass_url)
+            .expect("failed to open ravito cache"),
+    );
+
+    // --- Trace service ---
+    let trace_db_path = std::env::var("TRACE_DB_PATH").unwrap_or_else(|_| "data/trace.db".into());
+    if let Some(parent) = std::path::Path::new(&trace_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let trace_db = gpx_to_graph::trace::db::Db::open(&trace_db_path)
+        .expect("failed to open trace db");
+    trace_db.migrate().expect("failed to migrate trace db");
+    let trace_state: gpx_to_graph::trace::SharedState = std::sync::Arc::new(
+        gpx_to_graph::trace::AppState {
+            db: trace_db,
+            channels: gpx_to_graph::trace::session::Channels::new(),
+        },
+    );
+
+    // Purge expired trace sessions every 10 minutes.
+    let purge_state = trace_state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+        loop {
+            interval.tick().await;
+            if let Err(e) = purge_state.db.purge_expired() {
+                tracing::warn!("trace purge error: {e}");
+            }
+        }
+    });
+
+    // --- Col service ---
+    let col_db_path = std::env::var("COL_DB_PATH").unwrap_or_else(|_| "data/col.db".into());
+    if let Some(parent) = std::path::Path::new(&col_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let col_db = gpx_to_graph::col::db::Db::open(&col_db_path)
+        .expect("failed to open col db");
+    col_db.migrate().expect("failed to migrate col db");
+    let col_strava = gpx_to_graph::col::strava::StravaConfig::from_env();
+    let col_state: gpx_to_graph::col::SharedState = std::sync::Arc::new(
+        gpx_to_graph::col::AppState {
+            db: col_db,
+            strava: col_strava,
+        },
+    );
+
+    // --- Build unified app ---
     let app = Router::new()
+        // Original gpx_to_graph routes
         .route("/", get(form_page))
         .route("/generate", post(generate_handler))
         .route("/merge", post(merge_handler))
@@ -2426,7 +2495,13 @@ async fn main() {
         )
         .route("/static/recents.css", get(static_recents_css))
         .route("/static/recents.js", get(static_recents_js))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+        // Nested service routers
+        .nest("/meteo", gpx_to_graph::meteo::router(meteo_cache))
+        .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))
+        .nest("/trace", gpx_to_graph::trace::router(trace_state))
+        .nest("/stats", gpx_to_graph::strava_stats::router())
+        .nest("/col", gpx_to_graph::col::router(col_state));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {
@@ -2437,10 +2512,7 @@ async fn main() {
     });
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    println!(
-        "Server running at http://localhost:{port} (shares in {})",
-        share_dir().display()
-    );
+    tracing::info!("Server running at http://localhost:{port}");
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
