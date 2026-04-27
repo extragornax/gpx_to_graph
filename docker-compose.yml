@@ -12,7 +12,7 @@ services:
       #   PUBLIC_BASE_URL=https://gpx.example.com docker compose up -d
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
     volumes:
-      - gpx_shares:/data/shares
+      - gpx_data:/data
 
 volumes:
-  gpx_shares:
+  gpx_data:
