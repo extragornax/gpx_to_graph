@@ -17,6 +17,7 @@ const TRIP_CSS: &str = include_str!("../../static/trip/app.css");
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/", get(page_index))
+        .route("/api/challenge", get(challenge))
         .route("/api/register", post(register))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
@@ -37,20 +38,23 @@ async fn page_index() -> Html<String> {
 
 // ── Auth ──
 
+async fn challenge() -> Json<crate::pow::Challenge> {
+    Json(crate::pow::generate())
+}
+
 #[derive(Deserialize)]
 struct AuthBody {
     username: String,
     password: String,
-    #[serde(default)]
-    website: Option<String>,
+    pow: crate::pow::PowSolution,
 }
 
 async fn register(
     State(state): State<SharedState>,
     Json(body): Json<AuthBody>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid request".into()));
+    if !crate::pow::verify(&body.pow) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
     }
     if body.username.len() < 2 || body.password.len() < 6 {
         return Err((
@@ -86,8 +90,8 @@ async fn login(
     State(state): State<SharedState>,
     Json(body): Json<AuthBody>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid request".into()));
+    if !crate::pow::verify(&body.pow) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
     }
     let (user_id, hash) = state
         .db

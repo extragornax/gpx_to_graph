@@ -166,7 +166,6 @@
     <form class="auth-form" id="auth-form">
       <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
       <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
-      <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><input type="text" id="auth-hp" tabindex="-1" autocomplete="off" placeholder="Website"></div>
       <button class="btn" type="submit" id="auth-submit">Log in</button>
       <div class="error hidden" id="auth-error"></div>
     </form>
@@ -241,6 +240,21 @@ const COL_BASE = '/col';
 const publicMatch = location.pathname.match(/\/p\/([^/]+)$/);
 const publicShareId = publicMatch ? decodeURIComponent(publicMatch[1]) : null;
 
+// ── PoW solver ──
+async function solvePow(c) {
+  const enc = new TextEncoder(), cb = enc.encode(c.challenge);
+  for (let n = 0; ; n++) {
+    const buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
+    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+    const full = c.difficulty >> 3, rem = c.difficulty & 7;
+    let ok = true;
+    for (let i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
+    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
+      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
+  }
+}
+
 // ── Auth ──
 
 $$('.tab').forEach(tab => {
@@ -263,11 +277,14 @@ $('#auth-form').addEventListener('submit', async e => {
   const errEl = $('#auth-error');
   errEl.classList.add('hidden');
 
+  const chalRes = await fetch(`${COL_BASE}/api/challenge`);
+  const pow = await solvePow(await chalRes.json());
+
   const endpoint = authMode === 'login' ? `${COL_BASE}/api/login` : `${COL_BASE}/api/register`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, website: $('#auth-hp').value }),
+    body: JSON.stringify({ username, password, pow }),
   });
 
   if (res.ok) {

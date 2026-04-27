@@ -19,7 +19,9 @@ pub fn api_router() -> Router<SharedState> {
         .route("/sessions/{id}/gpx", get(get_gpx).post(upload_gpx))
         .route("/sessions/{id}/ws", get(ws_upgrade))
         .route("/sessions/{id}/owntracks", post(owntracks_ping))
+        .route("/challenge", get(pow_challenge))
         .route("/accounts", post(create_account))
+        .route("/accounts/login", post(login))
         .route("/accounts/{slug}", get(get_account).put(update_account))
         .route("/accounts/{slug}/owntracks", post(account_owntracks))
         .route("/accounts/{slug}/ws", get(account_ws_upgrade))
@@ -184,19 +186,22 @@ async fn owntracks_ping(
     Ok(Json(vec![]))
 }
 
+async fn pow_challenge() -> Json<crate::pow::Challenge> {
+    Json(crate::pow::generate())
+}
+
 #[derive(Deserialize)]
 struct CreateAccount {
     slug: String,
     password: String,
-    #[serde(default)]
-    website: Option<String>,
+    pow: crate::pow::PowSolution,
 }
 
 async fn create_account(
     State(state): State<SharedState>,
     Json(body): Json<CreateAccount>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
+    if !crate::pow::verify(&body.pow) {
         return Err(StatusCode::BAD_REQUEST);
     }
     let slug = body.slug.trim().to_lowercase();
@@ -215,6 +220,31 @@ async fn create_account(
     })?;
 
     Ok((StatusCode::CREATED, Json(account)))
+}
+
+#[derive(Deserialize)]
+struct LoginBody {
+    slug: String,
+    password: String,
+    pow: crate::pow::PowSolution,
+}
+
+async fn login(
+    State(state): State<SharedState>,
+    Json(body): Json<LoginBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !crate::pow::verify(&body.pow) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let (account, hash) = state.db.get_account_by_slug(&body.slug)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !bcrypt::verify(&body.password, &hash).unwrap_or(false) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(Json(serde_json::json!({
+        "account": { "slug": account.slug, "session_id": account.session_id },
+    })))
 }
 
 fn extract_basic_auth(headers: &HeaderMap) -> Option<(String, String)> {

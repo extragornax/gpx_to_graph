@@ -175,7 +175,6 @@
     <input type="text" id="acc-slug" placeholder="slug (e.g. gaspard)">
     <input type="password" id="acc-pass" placeholder="password">
   </div>
-  <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><input type="text" id="acc-hp" tabindex="-1" autocomplete="off" placeholder="Website"></div>
   <div class="row">
     <button class="btn-sm" id="btn-login">Login</button>
     <button class="btn-sm" id="btn-register">Create</button>
@@ -484,9 +483,30 @@ function authHeader() {
   return { 'Authorization': 'Basic ' + btoa(currentAccount.slug + ':' + currentAccount.password) };
 }
 
+async function solvePow(c) {
+  const enc = new TextEncoder(), cb = enc.encode(c.challenge);
+  for (let n = 0; ; n++) {
+    const buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
+    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+    const full = c.difficulty >> 3, rem = c.difficulty & 7;
+    let ok = true;
+    for (let i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
+    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
+      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
+  }
+}
+
+async function fetchPow() {
+  return solvePow(await (await fetch(`${BASE}/api/challenge`)).json());
+}
+
 async function login(slug, password) {
-  const res = await fetch(`${BASE}/api/accounts/${slug}`, {
-    headers: { 'Authorization': 'Basic ' + btoa(slug + ':' + password) },
+  const pow = await fetchPow();
+  const res = await fetch(`${BASE}/api/accounts/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug, password, pow }),
   });
   if (res.status === 401) throw new Error('Wrong password');
   if (res.status === 404) throw new Error('Account not found');
@@ -497,10 +517,11 @@ async function login(slug, password) {
 }
 
 async function register(slug, password) {
+  const pow = await fetchPow();
   const res = await fetch(`${BASE}/api/accounts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, password, website: $('acc-hp').value }),
+    body: JSON.stringify({ slug, password, pow }),
   });
   if (res.status === 409) throw new Error('Slug already taken');
   if (res.status === 400) throw new Error('Slug: 2-32 chars (a-z, 0-9, -, _). Password: 4+ chars.');
@@ -511,7 +532,6 @@ async function register(slug, password) {
 }
 
 $('btn-login').onclick = async () => {
-  if ($('acc-hp').value) return;
   const slug = $('acc-slug').value.trim().toLowerCase();
   const pass = $('acc-pass').value;
   $('acc-msg').className = 'msg';

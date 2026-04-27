@@ -50,14 +50,12 @@
     <form id="loginForm" class="auth-form">
       <div class="field"><label>Username</label><input type="text" id="loginUser" required></div>
       <div class="field"><label>Password</label><input type="password" id="loginPass" required></div>
-      <div class="field" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><label>Website</label><input type="text" id="loginHp" tabindex="-1" autocomplete="off"></div>
       <div class="auth-error" id="loginError"></div>
       <button type="submit" class="auth-btn">Log in</button>
     </form>
     <form id="registerForm" class="auth-form" style="display:none">
       <div class="field"><label>Username</label><input type="text" id="regUser" required minlength="2"></div>
       <div class="field"><label>Password</label><input type="password" id="regPass" required minlength="6"></div>
-      <div class="field" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><label>Website</label><input type="text" id="regHp" tabindex="-1" autocomplete="off"></div>
       <div class="auth-error" id="regError"></div>
       <button type="submit" class="auth-btn">Create account</button>
     </form>
@@ -139,6 +137,20 @@ const profileSvg = document.getElementById('profileSvg');
 const dayTableBody = document.querySelector('#dayTable tbody');
 const numDaysInput = document.getElementById('numDays');
 
+// ── PoW solver ──
+async function solvePow(c) {
+  var enc = new TextEncoder(), cb = enc.encode(c.challenge);
+  for (var n = 0; ; n++) {
+    var buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
+    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
+    var h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+    var full = c.difficulty >> 3, rem = c.difficulty & 7, ok = true;
+    for (var i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
+    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
+      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
+  }
+}
+
 // ── Auth ──
 document.querySelectorAll('.auth-tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
@@ -154,9 +166,11 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
   var err = document.getElementById('loginError');
   err.textContent = '';
   try {
+    var c = await (await fetch(API + '/challenge')).json();
+    var pow = await solvePow(c);
     var res = await fetch(API + '/login', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value, website: document.getElementById('loginHp').value })
+      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value, pow: pow })
     });
     if (!res.ok) { err.textContent = await res.text(); return; }
     var data = await res.json();
@@ -169,9 +183,11 @@ document.getElementById('registerForm').addEventListener('submit', async functio
   var err = document.getElementById('regError');
   err.textContent = '';
   try {
+    var c = await (await fetch(API + '/challenge')).json();
+    var pow = await solvePow(c);
     var res = await fetch(API + '/register', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value, website: document.getElementById('regHp').value })
+      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value, pow: pow })
     });
     if (!res.ok) { err.textContent = await res.text(); return; }
     var data = await res.json();
