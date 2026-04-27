@@ -23,6 +23,33 @@
   .mono { font-family:"Space Mono",monospace; }
   .display { font-family:"Bricolage Grotesque",sans-serif; }
 
+  .site-nav {
+    display:flex; align-items:center; gap:0;
+    border-bottom:2px solid var(--ink);
+    padding:0 24px;
+    background:var(--paper);
+    position:relative; z-index:60;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
+  }
+  .nav-brand {
+    font-family:"Bricolage Grotesque",sans-serif; font-weight:800; font-size:1.1rem;
+    color:var(--ink); text-decoration:none;
+    padding:0.6rem 1.25rem 0.6rem 0; margin-right:0.5rem;
+    border-right:1px solid var(--rule);
+    white-space:nowrap;
+  }
+  .nav-link {
+    display:inline-block; padding:0.6rem 1.1rem;
+    font-family:"Space Mono",monospace; font-size:0.72rem; font-weight:700;
+    letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--ink); opacity:0.5;
+    text-decoration:none; border-bottom:3px solid transparent;
+    margin-bottom:-2px; transition:opacity 0.15s,border-color 0.15s;
+    white-space:nowrap;
+  }
+  .nav-link:hover { opacity:0.85; }
+  .nav-link.active { opacity:1; color:var(--vermilion); border-bottom-color:var(--vermilion); }
+
   .shell { max-width:1200px; margin:0 auto; padding:24px 24px 80px; position:relative; z-index:1; }
 
   /* ── header ── */
@@ -109,6 +136,15 @@
 </style>
 </head>
 <body>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/stats" class="nav-link">Stats</a>
+  <a href="/col" class="nav-link active">Col</a>
+</nav>
 <div class="shell">
 
   <header class="hdr">

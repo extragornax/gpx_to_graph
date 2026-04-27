@@ -260,51 +260,75 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   button[type="submit"]:hover {
     background: #961e22;
   }
-  .tabs {
+  .site-nav {
     display: flex;
+    align-items: center;
     gap: 0;
     border-bottom: 2px solid var(--ink);
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .tab {
+  .nav-brand {
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: 1.1rem;
+    color: var(--ink);
+    text-decoration: none;
+    padding: 0.6rem 1.25rem 0.6rem 0;
+    margin-right: 0.5rem;
+    border-right: 1px solid var(--rule);
+    white-space: nowrap;
+    font-variation-settings: "opsz" 72;
+  }
+  .nav-link {
+    display: inline-block;
+    padding: 0.6rem 1.1rem;
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .nav-link:hover { color: var(--ink); }
+  .nav-link.active {
+    color: var(--carmine);
+    border-bottom-color: var(--carmine);
+  }
+  .local-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 1.5rem;
+  }
+  .local-tab {
     background: transparent;
     border: none;
-    padding: 0.6rem 1.25rem;
+    padding: 0.5rem 1.25rem;
     font-family: var(--f-mono);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--muted);
     cursor: pointer;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -2px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
     transition: color 0.15s, border-color 0.15s;
-    white-space: nowrap;
-    flex-shrink: 0;
   }
-  .tab:hover { color: var(--ink); }
-  .tab.active {
-    color: var(--carmine);
-    border-bottom-color: var(--carmine);
-  }
-  .tab-sep {
-    width: 1px;
-    align-self: stretch;
-    background: var(--rule);
-    margin: 0.4rem 0.25rem;
+  .local-tab:hover { color: var(--ink); }
+  .local-tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--ink);
   }
   .panel { display: none; }
   .panel.active { display: block; }
-  .service-frame {
-    width: 100%;
-    height: calc(100vh - 10rem);
-    min-height: 500px;
-    border: 1px solid var(--ink);
-    background: var(--paper);
-  }
   .status-line {
     margin-top: 1rem;
     font-weight: 600;
@@ -481,18 +505,19 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   <ol id="recentsList" class="rx-list"></ol>
 </aside>
 <div class="container">
-  <h1>GPX Tools</h1>
-  <p class="subtitle">Generate elevation graphs or merge multiple GPX files.</p>
+  <nav class="site-nav">
+    <a href="/" class="nav-brand">GPX Tools</a>
+    <a href="/" class="nav-link active">Graph</a>
+    <a href="/meteo" class="nav-link">Meteo</a>
+    <a href="/ravito" class="nav-link">Ravito</a>
+    <a href="/trace" class="nav-link">Trace</a>
+    <a href="/stats" class="nav-link">Stats</a>
+    <a href="/col" class="nav-link">Col</a>
+  </nav>
 
-  <div class="tabs">
-    <button type="button" class="tab active" data-target="graph">Graph</button>
-    <button type="button" class="tab" data-target="merge">Merge</button>
-    <span class="tab-sep"></span>
-    <button type="button" class="tab" data-target="meteo" data-src="/meteo">Meteo</button>
-    <button type="button" class="tab" data-target="ravito" data-src="/ravito">Ravito</button>
-    <button type="button" class="tab" data-target="trace" data-src="/trace">Trace</button>
-    <button type="button" class="tab" data-target="stats" data-src="/stats">Stats</button>
-    <button type="button" class="tab" data-target="col" data-src="/col">Col</button>
+  <div class="local-tabs">
+    <button type="button" class="local-tab active" data-target="graph">Generate</button>
+    <button type="button" class="local-tab" data-target="merge">Merge</button>
   </div>
 
   <div id="panel-graph" class="panel active">
@@ -594,22 +619,14 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     </div>
   </div>
 
-  <div id="panel-meteo" class="panel"><iframe class="service-frame" data-src="/meteo"></iframe></div>
-  <div id="panel-ravito" class="panel"><iframe class="service-frame" data-src="/ravito"></iframe></div>
-  <div id="panel-trace" class="panel"><iframe class="service-frame" data-src="/trace"></iframe></div>
-  <div id="panel-stats" class="panel"><iframe class="service-frame" data-src="/stats"></iframe></div>
-  <div id="panel-col" class="panel"><iframe class="service-frame" data-src="/col"></iframe></div>
 </div>
 <script>
-  document.querySelectorAll('.tab').forEach(function (tab) {
+  document.querySelectorAll('.local-tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
-      document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+      document.querySelectorAll('.local-tab').forEach(function (t) { t.classList.remove('active'); });
       document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
       tab.classList.add('active');
-      var panel = document.getElementById('panel-' + tab.dataset.target);
-      panel.classList.add('active');
-      var iframe = panel.querySelector('iframe.service-frame');
-      if (iframe && !iframe.src) iframe.src = iframe.dataset.src;
+      document.getElementById('panel-' + tab.dataset.target).classList.add('active');
     });
   });
 

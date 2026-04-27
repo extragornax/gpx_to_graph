@@ -58,6 +58,35 @@
 
     ::selection { background: var(--accent); color: #fff; }
 
+    /* --- Site nav --- */
+    .site-nav {
+      display: flex; align-items: center; gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      background: rgba(8, 8, 10, 0.85);
+      backdrop-filter: blur(20px) saturate(1.5);
+      position: relative; z-index: 101;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    .nav-brand {
+      font-family: var(--font-display); font-weight: 800; font-size: 1.1rem;
+      color: var(--text-primary); text-decoration: none;
+      padding: 0.6rem 1.25rem 0.6rem 0; margin-right: 0.5rem;
+      border-right: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .nav-link {
+      display: inline-block; padding: 0.6rem 1.1rem;
+      font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text-secondary);
+      text-decoration: none; border-bottom: 3px solid transparent;
+      margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .nav-link:hover { color: var(--text-primary); }
+    .nav-link.active { color: var(--accent); border-bottom-color: var(--accent); }
+
     /* --- Layout --- */
     .shell { position: relative; z-index: 1; }
 
@@ -613,6 +642,16 @@
   </style>
 </head>
 <body>
+
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/stats" class="nav-link active">Stats</a>
+  <a href="/col" class="nav-link">Col</a>
+</nav>
 
 <!-- Upload overlay -->
 <div class="upload-overlay" id="upload-overlay">

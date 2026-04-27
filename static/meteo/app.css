@@ -28,6 +28,34 @@
   --f-mono:    'Space Mono', ui-monospace, Menlo, monospace;
 }
 
+/* ── site nav ── */
+.site-nav {
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 2px solid var(--ink);
+  padding: 0 24px;
+  background: var(--paper);
+  position: relative; z-index: 60;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.nav-brand {
+  font-family: var(--f-display); font-weight: 800; font-size: 1.1rem;
+  color: var(--ink); text-decoration: none;
+  padding: 0.6rem 1.25rem 0.6rem 0; margin-right: 0.5rem;
+  border-right: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.nav-link {
+  display: inline-block; padding: 0.6rem 1.1rem;
+  font-family: var(--f-mono); font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.5;
+  text-decoration: none; border-bottom: 3px solid transparent;
+  margin-bottom: -2px; transition: opacity 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.nav-link:hover { opacity: 0.85; }
+.nav-link.active { opacity: 1; color: var(--carmine); border-bottom-color: var(--carmine); }
+
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 html, body { margin: 0; padding: 0; }
