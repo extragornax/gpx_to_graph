@@ -17,6 +17,8 @@ pub mod strava_stats;
 pub mod col;
 #[cfg(feature = "server")]
 pub mod toolkit;
+#[cfg(feature = "server")]
+pub mod trip;
 
 // ---------------------------------------------------------------------------
 // Public data types

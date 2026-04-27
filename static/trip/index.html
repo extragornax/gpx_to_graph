@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trip Planner — multi-day GPX splitter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- CSS_PLACEHOLDER -->
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/toolkit" class="nav-link">Toolkit</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/stats" class="nav-link">Stats</a>
+  <a href="/col" class="nav-link">Col</a>
+  <a href="/trip" class="nav-link active">Trip</a>
+</nav>
+
+<main>
+  <header class="masthead">
+    <div class="edition">
+      <span>Planificateur</span>
+      <span class="dot">&#x2726;</span>
+      <span>Multi-jours &middot; Splitter &middot; GPX</span>
+    </div>
+    <h1 class="title">trip<span class="slash">/</span><span class="title-sub">planner</span></h1>
+    <p class="tagline">
+      Upload a <tt>.gpx</tt> route and split it into <em>multi-day stages</em>.
+      Drag the day boundaries on the elevation profile to adjust where each day
+      starts and ends.
+    </p>
+    <div class="rule-double"></div>
+  </header>
+
+  <!-- Auth panel -->
+  <section id="authPanel" class="auth-panel">
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Login</button>
+      <button class="auth-tab" data-tab="register">Register</button>
+    </div>
+    <form id="loginForm" class="auth-form">
+      <div class="field"><label>Username</label><input type="text" id="loginUser" required></div>
+      <div class="field"><label>Password</label><input type="password" id="loginPass" required></div>
+      <div class="auth-error" id="loginError"></div>
+      <button type="submit" class="auth-btn">Log in</button>
+    </form>
+    <form id="registerForm" class="auth-form" style="display:none">
+      <div class="field"><label>Username</label><input type="text" id="regUser" required minlength="2"></div>
+      <div class="field"><label>Password</label><input type="password" id="regPass" required minlength="6"></div>
+      <div class="auth-error" id="regError"></div>
+      <button type="submit" class="auth-btn">Create account</button>
+    </form>
+  </section>
+
+  <!-- App (logged in) -->
+  <section id="appPanel" style="display:none">
+    <div class="user-bar">
+      <span>Signed in as <span class="username" id="displayUser"></span></span>
+      <button id="logoutBtn">Logout</button>
+    </div>
+
+    <!-- Trip list -->
+    <div id="tripListView">
+      <section class="upload-section">
+        <div class="drop-zone" id="dropZone">
+          <svg class="drop-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 4v22M12 18l8 8 8-8"/>
+            <path d="M4 28v4a4 4 0 004 4h24a4 4 0 004-4v-4"/>
+          </svg>
+          <p class="drop-text">Drop a <tt>.gpx</tt> file to create a new trip</p>
+          <input type="file" accept=".gpx" id="fileInput">
+        </div>
+      </section>
+      <div class="trip-grid" id="tripGrid"></div>
+    </div>
+
+    <!-- Trip detail -->
+    <div id="tripDetailView" style="display:none">
+      <button class="back-btn" id="backBtn">&larr; Back to trips</button>
+      <h2 id="tripTitle" style="font-family:'Fraunces',serif;font-weight:900;font-size:1.8rem;margin:0 0 0.5rem"></h2>
+
+      <div class="day-controls">
+        <label>Days: <input type="number" id="numDays" min="1" max="30" value="1"></label>
+        <button id="splitBtn">Split equally</button>
+      </div>
+
+      <div id="tripMap" class="trip-map"></div>
+
+      <div class="profile-wrap">
+        <svg id="profileSvg" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
+      </div>
+
+      <table class="day-table" id="dayTable">
+        <thead><tr><th>Day</th><th>Distance</th><th>Elev. gain</th><th>Elev. loss</th><th>Start elev.</th><th>End elev.</th><th>GPX</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="colophon">
+  <span>Trip Planner</span>
+  <span class="col-mid">drag to split</span>
+  <span>GPX Tools</span>
+</footer>
+
+<script>
+(function(){
+'use strict';
+
+const API = '/trip/api';
+const DAY_COLORS = ['#b8202a','#1b4a8a','#14707a','#476b2e','#79654a','#8a1621','#2a5faa','#1a8a7a','#5a8a2e','#aa7a4a'];
+
+let currentUser = null;
+let trips = [];
+let currentTrip = null;
+let map = null;
+let dayLayers = [];
+let dragging = null;
+let saveTimer = null;
+
+const authPanel = document.getElementById('authPanel');
+const appPanel = document.getElementById('appPanel');
+const tripListView = document.getElementById('tripListView');
+const tripDetailView = document.getElementById('tripDetailView');
+const tripGrid = document.getElementById('tripGrid');
+const profileSvg = document.getElementById('profileSvg');
+const dayTableBody = document.querySelector('#dayTable tbody');
+const numDaysInput = document.getElementById('numDays');
+
+// ── Auth ──
+document.querySelectorAll('.auth-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.auth-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('loginForm').style.display = tab.dataset.tab === 'login' ? '' : 'none';
+    document.getElementById('registerForm').style.display = tab.dataset.tab === 'register' ? '' : 'none';
+  });
+});
+
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var err = document.getElementById('loginError');
+  err.textContent = '';
+  try {
+    var res = await fetch(API + '/login', {
+      method: 'POST', headers: {'content-type':'application/json'},
+      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value })
+    });
+    if (!res.ok) { err.textContent = await res.text(); return; }
+    var data = await res.json();
+    showApp(data.username);
+  } catch(ex) { err.textContent = 'Network error'; }
+});
+
+document.getElementById('registerForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var err = document.getElementById('regError');
+  err.textContent = '';
+  try {
+    var res = await fetch(API + '/register', {
+      method: 'POST', headers: {'content-type':'application/json'},
+      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value })
+    });
+    if (!res.ok) { err.textContent = await res.text(); return; }
+    var data = await res.json();
+    showApp(data.username);
+  } catch(ex) { err.textContent = 'Network error'; }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async function() {
+  await fetch(API + '/logout', { method: 'POST' });
+  currentUser = null;
+  authPanel.style.display = '';
+  appPanel.style.display = 'none';
+});
+
+async function checkSession() {
+  try {
+    var res = await fetch(API + '/me');
+    if (res.ok) {
+      var data = await res.json();
+      showApp(data.username);
+    }
+  } catch(e) {}
+}
+
+function showApp(username) {
+  currentUser = username;
+  document.getElementById('displayUser').textContent = username;
+  authPanel.style.display = 'none';
+  appPanel.style.display = '';
+  loadTrips();
+}
+
+// ── Trip list ──
+async function loadTrips() {
+  var res = await fetch(API + '/trips');
+  if (!res.ok) return;
+  trips = await res.json();
+  renderTripList();
+}
+
+function renderTripList() {
+  tripGrid.innerHTML = '';
+  if (trips.length === 0) {
+    tripGrid.innerHTML = '<div class="panel-empty"><p>No trips yet. Upload a GPX to get started.</p></div>';
+    return;
+  }
+  for (var t of trips) {
+    var card = document.createElement('div');
+    card.className = 'trip-card';
+    card.innerHTML =
+      '<span class="trip-name">' + esc(t.name) + '</span>' +
+      '<span class="trip-meta">' + t.total_km.toFixed(1) + ' km &middot; ' + t.total_gain.toFixed(0) + ' m+ &middot; ' + t.num_days + ' day' + (t.num_days > 1 ? 's' : '') + '</span>' +
+      '<button class="trip-delete" data-id="' + t.id + '" title="Delete">&times;</button>';
+    (function(tripId) {
+      card.addEventListener('click', function(e) {
+        if (e.target.closest('.trip-delete')) return;
+        openTrip(tripId);
+      });
+      card.querySelector('.trip-delete').addEventListener('click', async function(e) {
+        e.stopPropagation();
+        if (!confirm('Delete this trip?')) return;
+        await fetch(API + '/trips/' + tripId, { method: 'DELETE' });
+        loadTrips();
+      });
+    })(t.id);
+    tripGrid.appendChild(card);
+  }
+}
+
+// ── Upload ──
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); uploadFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', function() { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
+
+async function uploadFile(file) {
+  if (!file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  var res = await fetch(API + '/trips', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed: ' + await res.text()); return; }
+  var data = await res.json();
+  await loadTrips();
+  openTrip(data.id);
+}
+
+// ── Trip detail ──
+async function openTrip(id) {
+  var res = await fetch(API + '/trips/' + id);
+  if (!res.ok) return;
+  var data = await res.json();
+  currentTrip = {
+    id: data.id,
+    name: data.name,
+    points: JSON.parse(data.points_json),
+    boundaries: data.boundaries
+  };
+
+  document.getElementById('tripTitle').textContent = currentTrip.name;
+  numDaysInput.value = currentTrip.boundaries.length + 1;
+
+  tripListView.style.display = 'none';
+  tripDetailView.style.display = '';
+
+  initMap();
+  renderAll();
+}
+
+document.getElementById('backBtn').addEventListener('click', function() {
+  tripDetailView.style.display = 'none';
+  tripListView.style.display = '';
+  currentTrip = null;
+  if (map) { map.remove(); map = null; }
+  loadTrips();
+});
+
+document.getElementById('splitBtn').addEventListener('click', function() {
+  if (!currentTrip) return;
+  var n = Math.max(1, Math.min(30, parseInt(numDaysInput.value) || 1));
+  numDaysInput.value = n;
+  splitEqually(n);
+  renderAll();
+  saveBoundaries();
+});
+
+function splitEqually(numDays) {
+  var len = currentTrip.points.length;
+  var bounds = [];
+  for (var i = 1; i < numDays; i++) {
+    bounds.push(Math.round(len * i / numDays));
+  }
+  currentTrip.boundaries = bounds;
+}
+
+// ── Map ──
+function initMap() {
+  if (map) { map.remove(); }
+  map = L.map('tripMap');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OSM'
+  }).addTo(map);
+}
+
+function renderMap() {
+  if (!map || !currentTrip) return;
+  dayLayers.forEach(function(l) { map.removeLayer(l); });
+  dayLayers = [];
+
+  var pts = currentTrip.points;
+  var bounds = currentTrip.boundaries;
+  var numDays = bounds.length + 1;
+  var allLatLngs = [];
+
+  for (var d = 0; d < numDays; d++) {
+    var start = d === 0 ? 0 : bounds[d - 1];
+    var end = d < bounds.length ? bounds[d] : pts.length;
+    var segment = pts.slice(start, end);
+    var latlngs = segment.map(function(p) { return [p.lat, p.lon]; });
+    allLatLngs.push.apply(allLatLngs, latlngs);
+
+    var line = L.polyline(latlngs, {
+      color: DAY_COLORS[d % DAY_COLORS.length],
+      weight: 4, opacity: 0.85
+    }).addTo(map);
+    dayLayers.push(line);
+  }
+
+  for (var i = 0; i < bounds.length; i++) {
+    var pt = pts[bounds[i]];
+    var marker = L.circleMarker([pt.lat, pt.lon], {
+      radius: 8, color: '#0e1424', fillColor: '#f2e9d4',
+      fillOpacity: 1, weight: 2
+    }).addTo(map);
+    marker.bindTooltip('Day ' + (i + 1) + ' / ' + (i + 2), { direction: 'top' });
+    dayLayers.push(marker);
+  }
+
+  if (allLatLngs.length > 0) {
+    map.fitBounds(L.latLngBounds(allLatLngs), { padding: [30, 30] });
+  }
+}
+
+// ── Profile SVG ──
+var SVG_W = 1000, SVG_H = 320;
+var PAD = { top: 20, right: 20, bottom: 35, left: 55 };
+var CW = SVG_W - PAD.left - PAD.right;
+var CH = SVG_H - PAD.top - PAD.bottom;
+
+function renderProfile() {
+  if (!currentTrip) return;
+  var pts = currentTrip.points;
+  var bounds = currentTrip.boundaries;
+  if (pts.length < 2) return;
+
+  var maxKm = pts[pts.length - 1].km;
+  var minEle = Infinity, maxEle = -Infinity;
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].ele < minEle) minEle = pts[i].ele;
+    if (pts[i].ele > maxEle) maxEle = pts[i].ele;
+  }
+  minEle = Math.floor(minEle / 50) * 50;
+  maxEle = Math.ceil(maxEle / 50) * 50 + 50;
+  var eleRange = maxEle - minEle || 1;
+
+  function xOf(km) { return PAD.left + (km / maxKm) * CW; }
+  function yOf(ele) { return PAD.top + (1 - (ele - minEle) / eleRange) * CH; }
+
+  var svg = '';
+
+  // grid
+  var eleStep = eleRange > 2000 ? 500 : eleRange > 800 ? 200 : 100;
+  for (var e = minEle; e <= maxEle; e += eleStep) {
+    var y = yOf(e);
+    svg += '<line x1="' + PAD.left + '" y1="' + y + '" x2="' + (SVG_W - PAD.right) + '" y2="' + y + '" stroke="#b7a885" stroke-width="0.5" stroke-dasharray="4,3"/>';
+    svg += '<text x="' + (PAD.left - 6) + '" y="' + (y + 3) + '" text-anchor="end" fill="#79654a" font-size="10" font-family="Space Mono,monospace">' + e + 'm</text>';
+  }
+  var kmStep = Math.max(10, Math.round(maxKm / 8 / 10) * 10) || 10;
+  for (var km = 0; km <= maxKm; km += kmStep) {
+    var x = xOf(km);
+    svg += '<line x1="' + x + '" y1="' + PAD.top + '" x2="' + x + '" y2="' + (SVG_H - PAD.bottom) + '" stroke="#b7a885" stroke-width="0.5" stroke-dasharray="4,3"/>';
+    svg += '<text x="' + x + '" y="' + (SVG_H - PAD.bottom + 16) + '" text-anchor="middle" fill="#79654a" font-size="10" font-family="Space Mono,monospace">' + km + 'km</text>';
+  }
+
+  // filled segments per day
+  var numDays = bounds.length + 1;
+  for (var d = 0; d < numDays; d++) {
+    var dStart = d === 0 ? 0 : bounds[d - 1];
+    var dEnd = d < bounds.length ? bounds[d] : pts.length - 1;
+    var color = DAY_COLORS[d % DAY_COLORS.length];
+
+    var path = 'M' + xOf(pts[dStart].km) + ',' + yOf(pts[dStart].ele);
+    for (var j = dStart + 1; j <= dEnd && j < pts.length; j++) {
+      path += 'L' + xOf(pts[j].km) + ',' + yOf(pts[j].ele);
+    }
+    var lastIdx = Math.min(dEnd, pts.length - 1);
+    path += 'L' + xOf(pts[lastIdx].km) + ',' + yOf(minEle) + 'L' + xOf(pts[dStart].km) + ',' + yOf(minEle) + 'Z';
+    svg += '<path d="' + path + '" fill="' + color + '" fill-opacity="0.2" stroke="' + color + '" stroke-width="1.5"/>';
+  }
+
+  // boundary handles
+  for (var bi = 0; bi < bounds.length; bi++) {
+    var bpt = pts[bounds[bi]];
+    var bx = xOf(bpt.km);
+    svg += '<line x1="' + bx + '" y1="' + PAD.top + '" x2="' + bx + '" y2="' + (SVG_H - PAD.bottom) + '" stroke="#0e1424" stroke-width="1.5" stroke-dasharray="6,4"/>';
+    svg += '<rect class="handle" data-idx="' + bi + '" x="' + (bx - 8) + '" y="' + (PAD.top - 4) + '" width="16" height="' + (CH + 8) + '" fill="transparent" style="cursor:ew-resize"/>';
+    svg += '<circle cx="' + bx + '" cy="' + (PAD.top + CH / 2) + '" r="7" fill="#0e1424" stroke="#f2e9d4" stroke-width="2" style="pointer-events:none"/>';
+    svg += '<text x="' + bx + '" y="' + (PAD.top - 8) + '" text-anchor="middle" fill="#0e1424" font-size="10" font-weight="700" font-family="Space Mono,monospace">' + bpt.km.toFixed(0) + 'km</text>';
+  }
+
+  // axes
+  svg += '<line x1="' + PAD.left + '" y1="' + PAD.top + '" x2="' + PAD.left + '" y2="' + (SVG_H - PAD.bottom) + '" stroke="#0e1424" stroke-width="1.5"/>';
+  svg += '<line x1="' + PAD.left + '" y1="' + (SVG_H - PAD.bottom) + '" x2="' + (SVG_W - PAD.right) + '" y2="' + (SVG_H - PAD.bottom) + '" stroke="#0e1424" stroke-width="1.5"/>';
+
+  profileSvg.innerHTML = svg;
+}
+
+// ── Drag interaction ──
+profileSvg.addEventListener('mousedown', function(e) {
+  var handle = e.target.closest('.handle');
+  if (!handle) return;
+  dragging = parseInt(handle.dataset.idx);
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (dragging === null || !currentTrip) return;
+  var rect = profileSvg.getBoundingClientRect();
+  var svgX = ((e.clientX - rect.left) / rect.width) * SVG_W;
+  var km = ((svgX - PAD.left) / CW) * currentTrip.points[currentTrip.points.length - 1].km;
+  moveBoundary(dragging, km);
+});
+
+profileSvg.addEventListener('touchstart', function(e) {
+  var handle = e.target.closest('.handle');
+  if (!handle) return;
+  dragging = parseInt(handle.dataset.idx);
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchmove', function(e) {
+  if (dragging === null || !currentTrip) return;
+  var touch = e.touches[0];
+  var rect = profileSvg.getBoundingClientRect();
+  var svgX = ((touch.clientX - rect.left) / rect.width) * SVG_W;
+  var km = ((svgX - PAD.left) / CW) * currentTrip.points[currentTrip.points.length - 1].km;
+  moveBoundary(dragging, km);
+}, { passive: false });
+
+function endDrag() {
+  if (dragging !== null) {
+    dragging = null;
+    debounceSave();
+  }
+}
+document.addEventListener('mouseup', endDrag);
+document.addEventListener('touchend', endDrag);
+
+function moveBoundary(idx, km) {
+  var pts = currentTrip.points;
+  var bounds = currentTrip.boundaries;
+
+  var nearest = 0;
+  var minDist = Infinity;
+  for (var i = 0; i < pts.length; i++) {
+    var dist = Math.abs(pts[i].km - km);
+    if (dist < minDist) { minDist = dist; nearest = i; }
+  }
+
+  var minIdx = idx > 0 ? bounds[idx - 1] + 1 : 1;
+  var maxIdx = idx < bounds.length - 1 ? bounds[idx + 1] - 1 : pts.length - 2;
+  bounds[idx] = Math.max(minIdx, Math.min(maxIdx, nearest));
+
+  renderProfile();
+  renderMap();
+  renderStats();
+}
+
+function debounceSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveBoundaries, 500);
+}
+
+async function saveBoundaries() {
+  if (!currentTrip) return;
+  await fetch(API + '/trips/' + currentTrip.id + '/days', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ boundaries: currentTrip.boundaries })
+  });
+}
+
+// ── Day stats ──
+function renderStats() {
+  if (!currentTrip) return;
+  var pts = currentTrip.points;
+  var bounds = currentTrip.boundaries;
+  var numDays = bounds.length + 1;
+
+  var html = '';
+  for (var d = 0; d < numDays; d++) {
+    var start = d === 0 ? 0 : bounds[d - 1];
+    var end = d < bounds.length ? bounds[d] : pts.length - 1;
+    var color = DAY_COLORS[d % DAY_COLORS.length];
+
+    var dist = pts[end].km - pts[start].km;
+    var gain = 0, loss = 0;
+    for (var i = start; i < end && i < pts.length - 1; i++) {
+      var diff = pts[i + 1].ele - pts[i].ele;
+      if (diff > 0) gain += diff; else loss -= diff;
+    }
+
+    html += '<tr>' +
+      '<td><span class="day-color" style="background:' + color + '"></span>Day ' + (d + 1) + '</td>' +
+      '<td>' + dist.toFixed(1) + ' km</td>' +
+      '<td>+' + gain.toFixed(0) + ' m</td>' +
+      '<td>-' + loss.toFixed(0) + ' m</td>' +
+      '<td>' + pts[start].ele.toFixed(0) + ' m</td>' +
+      '<td>' + pts[end].ele.toFixed(0) + ' m</td>' +
+      '<td><a href="' + API + '/trips/' + currentTrip.id + '/day/' + (d + 1) + '/gpx" style="color:var(--red);font-weight:700;text-decoration:underline">GPX</a></td>' +
+      '</tr>';
+  }
+  dayTableBody.innerHTML = html;
+}
+
+function renderAll() {
+  renderMap();
+  renderProfile();
+  renderStats();
+}
+
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+checkSession();
+
+})();
+</script>
+</body>
+</html>

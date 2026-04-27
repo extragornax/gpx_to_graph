@@ -514,6 +514,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/trace" class="nav-link">Trace</a>
     <a href="/stats" class="nav-link">Stats</a>
     <a href="/col" class="nav-link">Col</a>
+    <a href="/trip" class="nav-link">Trip</a>
   </nav>
 
   <div class="local-tabs">
@@ -2615,6 +2616,20 @@ async fn main() {
         },
     );
 
+    // --- Trip service ---
+    let trip_db_path = std::env::var("TRIP_DB_PATH").unwrap_or_else(|_| "data/trip.db".into());
+    if let Some(parent) = std::path::Path::new(&trip_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let trip_db = gpx_to_graph::trip::db::Db::open(&trip_db_path)
+        .expect("failed to open trip db");
+    trip_db.migrate().expect("failed to migrate trip db");
+    let trip_state: gpx_to_graph::trip::SharedState = std::sync::Arc::new(
+        gpx_to_graph::trip::AppState {
+            db: trip_db,
+        },
+    );
+
     // --- Build unified app ---
     let app = Router::new()
         // Original gpx_to_graph routes
@@ -2635,7 +2650,8 @@ async fn main() {
         .nest("/trace", gpx_to_graph::trace::router(trace_state))
         .nest("/stats", gpx_to_graph::strava_stats::router())
         .nest("/col", gpx_to_graph::col::router(col_state))
-        .nest("/toolkit", gpx_to_graph::toolkit::router());
+        .nest("/toolkit", gpx_to_graph::toolkit::router())
+        .nest("/trip", gpx_to_graph::trip::router(trip_state));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {
