@@ -1,9 +1,9 @@
 :root {
-  --paper:        #f1e8d5;
+  --paper:        #f2e9d4;
   --paper-alt:    #ecdfc3;
   --paper-deep:   #ddcea7;
-  --ink:          #14110a;
-  --ink-soft:     #2b261b;
+  --ink:          #0e1424;
+  --ink-soft:     #2a2f3e;
   --sepia:        #79654a;
   --sepia-muted:  #b7a885;
   --red:          #b8202a;
@@ -66,7 +66,7 @@ main {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.9rem;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: 'Space Mono', ui-monospace, monospace;
   font-size: 0.72rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -181,7 +181,7 @@ main {
   letter-spacing: -0.01em;
 }
 .stamp-sub {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -197,7 +197,7 @@ main {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -212,7 +212,7 @@ main {
 
 .field input,
 .field textarea {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.95rem;
   color: var(--ink);
   background: transparent;
@@ -237,14 +237,14 @@ main {
   resize: vertical;
 }
 .field input[type="file"] {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.8rem;
   padding: 0.5rem 0;
   border-bottom: 1.5px dotted var(--ink);
   cursor: pointer;
 }
 .field input[type="file"]::file-selector-button {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -273,7 +273,7 @@ main {
 .input-row:focus-within { border-color: var(--red); }
 .input-row input { border-bottom: 0 !important; padding-right: 0.5rem; }
 .input-row .unit {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -301,7 +301,7 @@ main {
 }
 @media (max-width: 720px) { .kinds { grid-template-columns: 1fr 1fr; } }
 .kinds legend {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -391,14 +391,14 @@ button[type="submit"]:active {
   box-shadow: 2px 2px 0 var(--red);
 }
 button[type="submit"] .btn-arrow {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 1rem;
   color: var(--red);
 }
 
 .status {
   margin: 0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.82rem;
   letter-spacing: 0.04em;
   color: var(--red);
@@ -440,7 +440,7 @@ button[type="submit"] .btn-arrow {
 }
 .cahier-title { display: flex; flex-direction: column; gap: 0.15rem; }
 .kicker {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -473,7 +473,7 @@ button[type="submit"] .btn-arrow {
   display: block;
 }
 .silhouette-wrap figcaption {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.64rem;
   letter-spacing: 0.25em;
   text-transform: uppercase;
@@ -494,7 +494,7 @@ button[type="submit"] .btn-arrow {
   border-left: 1.5px solid var(--ink);
 }
 .legend-grid dt {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.68rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -518,7 +518,7 @@ button[type="submit"] .btn-arrow {
   letter-spacing: -0.01em;
 }
 .legend-grid dd .unit-sm {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.72rem;
   font-weight: 500;
   color: var(--sepia);
@@ -536,7 +536,7 @@ button[type="submit"] .btn-arrow {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -571,7 +571,7 @@ button[type="submit"] .btn-arrow {
   font-size: 0.95rem;
 }
 #tbl thead th {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -595,7 +595,7 @@ button[type="submit"] .btn-arrow {
 #tbl tbody tr:hover td { background: rgba(184, 32, 42, 0.07); }
 
 #tbl td.km, #tbl td.eta, #tbl td.detour {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-feature-settings: "tnum";
   font-size: 0.9rem;
 }
@@ -617,7 +617,7 @@ button[type="submit"] .btn-arrow {
   margin-right: 0.35rem;
 }
 #tbl td.hours {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.76rem;
   color: var(--ink-soft);
   max-width: 280px;
@@ -629,7 +629,7 @@ button[type="submit"] .btn-arrow {
 #tbl td.state-cell { white-space: nowrap; }
 
 #tbl .state {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -670,7 +670,7 @@ button[type="submit"] .btn-arrow {
   gap: 2rem;
   padding: 1.5rem 0 0.5rem;
   margin-top: 3rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;

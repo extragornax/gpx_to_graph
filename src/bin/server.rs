@@ -98,35 +98,60 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPX to Graph</title>
+<title>GPX Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,800;1,9..144,400;1,9..144,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/recents.css">
 <style>
+  :root {
+    --paper: #f2e9d4; --paper-2: #e8dec0; --ink: #0e1424; --ink-soft: #2a2f3e;
+    --muted: #79654a; --carmine: #b8242a; --teal: #14707a; --mustard: #d9a326; --moss: #476b2e;
+    --rule: rgba(14,20,36,.18);
+    --f-display: 'Fraunces', Georgia, serif;
+    --f-body: 'Bricolage Grotesque', system-ui, sans-serif;
+    --f-mono: 'Space Mono', monospace;
+  }
   *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f0f2f5;
-    color: #1a1a1a;
+    font-family: var(--f-body);
+    background: var(--paper);
+    color: var(--ink);
     margin: 0;
     padding: 2rem 1rem;
+    line-height: 1.5;
+  }
+  .grain {
+    pointer-events: none; position: fixed; inset: 0; z-index: 50;
+    opacity: .22; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.055 0 0 0 0 0.078 0 0 0 0 0.141 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   }
   .container {
     max-width: 900px;
     margin: 0 auto;
+    position: relative;
+    z-index: 1;
   }
   h1 {
-    font-size: 1.75rem;
-    font-weight: 700;
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, 2.8rem);
+    letter-spacing: -0.02em;
     margin: 0 0 0.25rem;
+    font-variation-settings: "opsz" 72;
   }
   .subtitle {
-    color: #666;
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
     margin: 0 0 2rem;
-    font-size: 0.95rem;
   }
   .card {
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
     padding: 2rem;
   }
   .file-section {
@@ -142,22 +167,24 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     display: block;
     width: 100%;
     padding: 0.75rem;
-    border: 2px dashed #ccc;
-    border-radius: 8px;
-    background: #fafafa;
+    border: 2px dashed var(--rule);
+    background: var(--paper);
     cursor: pointer;
     font-size: 0.9rem;
+    font-family: var(--f-body);
   }
   .file-section input[type="file"]:hover {
-    border-color: #999;
+    border-color: var(--ink);
   }
   .section-title {
-    font-weight: 600;
-    font-size: 0.95rem;
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
     margin: 1.5rem 0 1rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid #eee;
-    color: #444;
+    border-bottom: 1px solid var(--rule);
   }
   .grid {
     display: grid;
@@ -174,22 +201,22 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   .field label {
     font-size: 0.85rem;
     font-weight: 500;
-    color: #555;
+    color: var(--ink-soft);
     margin-bottom: 0.35rem;
   }
   .field input[type="number"],
   .field input[type="text"] {
     padding: 0.6rem 0.75rem;
-    border: 1px solid #d0d0d0;
-    border-radius: 6px;
+    border: 1px solid var(--rule);
     font-size: 0.9rem;
-    background: #fafafa;
+    font-family: var(--f-body);
+    background: var(--paper);
     transition: border-color 0.15s;
   }
   .field input:focus {
     outline: none;
-    border-color: #4a90d9;
-    box-shadow: 0 0 0 3px rgba(74,144,217,0.12);
+    border-color: var(--ink);
+    box-shadow: 0 0 0 3px rgba(14,20,36,0.08);
   }
   .checkbox-field {
     display: flex;
@@ -201,15 +228,16 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     width: 18px;
     height: 18px;
     cursor: pointer;
+    accent-color: var(--carmine);
   }
   .checkbox-field label {
     font-size: 0.9rem;
     cursor: pointer;
-    color: #333;
+    color: var(--ink);
   }
   .hint {
     font-size: 0.75rem;
-    color: #888;
+    color: var(--muted);
     margin-top: 0.25rem;
   }
   .submit-section {
@@ -217,23 +245,25 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     text-align: right;
   }
   button[type="submit"] {
-    background: #2563eb;
-    color: #fff;
+    background: var(--carmine);
+    color: var(--paper);
     border: none;
     padding: 0.75rem 2rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border-radius: 8px;
+    font-family: var(--f-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     cursor: pointer;
     transition: background 0.15s;
   }
   button[type="submit"]:hover {
-    background: #1d4ed8;
+    background: #961e22;
   }
   .tabs {
     display: flex;
-    gap: 0.5rem;
-    border-bottom: 2px solid #e5e7eb;
+    gap: 0;
+    border-bottom: 2px solid var(--ink);
     margin-bottom: 1.5rem;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -241,10 +271,13 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   .tab {
     background: transparent;
     border: none;
-    padding: 0.75rem 1.5rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #666;
+    padding: 0.6rem 1.25rem;
+    font-family: var(--f-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
     cursor: pointer;
     border-bottom: 3px solid transparent;
     margin-bottom: -2px;
@@ -252,15 +285,15 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .tab:hover { color: #333; }
+  .tab:hover { color: var(--ink); }
   .tab.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
+    color: var(--carmine);
+    border-bottom-color: var(--carmine);
   }
   .tab-sep {
     width: 1px;
     align-self: stretch;
-    background: #d1d5db;
+    background: var(--rule);
     margin: 0.4rem 0.25rem;
   }
   .panel { display: none; }
@@ -269,25 +302,25 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     width: 100%;
     height: calc(100vh - 10rem);
     min-height: 500px;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    background: #fff;
+    border: 1px solid var(--ink);
+    background: var(--paper);
   }
   .status-line {
     margin-top: 1rem;
     font-weight: 600;
     font-size: 0.95rem;
   }
-  .status-line.info { color: #2563eb; }
-  .status-line.ok { color: #16a34a; }
-  .status-line.err { color: #dc2626; }
+  .status-line.info { color: var(--teal); }
+  .status-line.ok { color: var(--moss); }
+  .status-line.err { color: var(--carmine); }
   .merge-results { margin-top: 2rem; display: none; }
   .merge-results.visible { display: block; }
   .merge-results h2 {
-    font-size: 1.15rem;
+    font-family: var(--f-display);
+    font-size: 1.3rem;
     font-weight: 700;
     margin: 0 0 1rem;
-    color: #111;
+    color: var(--ink);
   }
   .stat-grid {
     display: grid;
@@ -295,56 +328,57 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     gap: 0.75rem;
   }
   .stat-box {
-    background: #f8fafc;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
     padding: 0.85rem 1rem;
   }
   .stat-box .stat-name {
-    font-size: 0.7rem;
+    font-family: var(--f-mono);
+    font-size: 0.65rem;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #64748b;
-    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 700;
   }
   .stat-box .stat-val {
+    font-family: var(--f-display);
     font-size: 1.35rem;
     font-weight: 700;
-    color: #1d4ed8;
+    color: var(--carmine);
     margin-top: 0.2rem;
     line-height: 1.1;
+    font-variation-settings: "opsz" 72;
   }
   .stat-box .stat-sub {
     font-size: 0.78rem;
-    color: #6b7280;
+    color: var(--muted);
     margin-top: 0.25rem;
   }
   .chart-section {
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--rule);
   }
   .chart-section label {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #333;
+    color: var(--ink-soft);
     margin-right: 0.5rem;
   }
   .chart-section select {
     padding: 0.45rem 0.6rem;
-    border: 1px solid #d0d0d0;
-    border-radius: 6px;
+    border: 1px solid var(--rule);
     font-size: 0.9rem;
-    background: #fff;
+    font-family: var(--f-body);
+    background: var(--paper);
   }
   .chart {
     display: block;
     width: 100%;
     height: 240px;
     margin-top: 0.75rem;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
   }
   .chart-controls {
     display: flex;
@@ -360,12 +394,12 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   .chart-controls label {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #333;
+    color: var(--ink-soft);
     margin: 0;
   }
   .chart-controls input[type="range"] {
     width: 160px;
-    accent-color: #2563eb;
+    accent-color: var(--carmine);
   }
   .chart-controls .cb-label {
     display: inline-flex;
@@ -375,7 +409,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     user-select: none;
   }
   .chart-controls .cb-label input[type="checkbox"] {
-    accent-color: #2563eb;
+    accent-color: var(--carmine);
     margin: 0;
   }
   #smoothVal {
@@ -383,23 +417,24 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     min-width: 1.5rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
-    color: #2563eb;
+    color: var(--carmine);
     font-weight: 700;
   }
   .file-section.dragging input[type="file"] {
-    border-color: #2563eb;
-    background: #eff6ff;
+    border-color: var(--ink);
+    background: var(--paper-2);
   }
   .per-file-section {
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--rule);
   }
   .per-file-section h3 {
+    font-family: var(--f-display);
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 0.75rem;
-    color: #111;
+    color: var(--ink);
   }
   .per-file-list {
     display: flex;
@@ -407,15 +442,14 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     gap: 0.5rem;
   }
   .per-file-card {
-    background: #f8fafc;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
     padding: 0.75rem 1rem;
   }
   .pf-name {
     font-weight: 600;
     font-size: 0.9rem;
-    color: #111;
+    color: var(--ink);
     margin-bottom: 0.4rem;
     word-break: break-all;
   }
@@ -424,21 +458,21 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     flex-wrap: wrap;
     gap: 0.4rem 0.6rem;
     font-size: 0.8rem;
-    color: #374151;
+    color: var(--ink-soft);
   }
   .pf-metrics span {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 5px;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
     padding: 0.15rem 0.5rem;
   }
   .pf-metrics b {
-    color: #1d4ed8;
+    color: var(--carmine);
     font-weight: 700;
   }
 </style>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 <aside id="recentsSidebar" class="recents-sidebar" aria-label="Recent routes" hidden>
   <div class="rx-header">
     <span class="rx-title">Recent routes</span>
@@ -901,13 +935,11 @@ const RECENTS_CSS: &str = r##"
   width: 220px;
   max-height: calc(100vh - 4rem);
   overflow-y: auto;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  background: var(--paper-2, #e8dec0);
+  border: 1px solid var(--ink, #0e1424);
   padding: 0.75rem 1rem;
-  z-index: 50;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  z-index: 40;
+  font-family: var(--f-body, 'Bricolage Grotesque', system-ui, sans-serif);
 }
 .recents-sidebar[hidden] { display: none; }
 .rx-header {
@@ -915,27 +947,27 @@ const RECENTS_CSS: &str = r##"
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.5rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--rule, rgba(14,20,36,.18));
   padding-bottom: 0.35rem;
 }
 .rx-title {
+  font-family: var(--f-mono, 'Space Mono', monospace);
   font-weight: 700;
-  font-size: 0.72rem;
-  color: #374151;
+  font-size: 0.65rem;
+  color: var(--muted, #79654a);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 .rx-clear {
   background: transparent;
   border: none;
-  color: #6b7280;
+  color: var(--muted, #79654a);
   cursor: pointer;
   font-size: 1.1rem;
   line-height: 1;
   padding: 0 0.35rem;
-  border-radius: 4px;
 }
-.rx-clear:hover { background: #f3f4f6; color: #111; }
+.rx-clear:hover { color: var(--ink, #0e1424); }
 .rx-list {
   list-style: none;
   margin: 0;
@@ -948,26 +980,25 @@ const RECENTS_CSS: &str = r##"
   display: block;
   text-decoration: none;
   padding: 0.45rem 0.55rem;
-  border-radius: 6px;
   transition: background 0.12s;
   border: 1px solid transparent;
 }
 .rx-item a:hover {
-  background: #eff6ff;
-  border-color: #dbeafe;
+  background: var(--paper, #f2e9d4);
+  border-color: var(--rule, rgba(14,20,36,.18));
 }
 .rx-item.active a {
-  background: #dbeafe;
-  border-color: #93c5fd;
+  background: var(--paper, #f2e9d4);
+  border-color: var(--ink, #0e1424);
 }
 .rx-item .rx-itm-title {
   font-weight: 600;
   font-size: 0.85rem;
-  color: #1d4ed8;
+  color: var(--carmine, #b8242a);
 }
 .rx-item .rx-itm-sub {
   font-size: 0.72rem;
-  color: #6b7280;
+  color: var(--muted, #79654a);
   margin-top: 0.1rem;
 }
 @media (max-width: 1250px) {
@@ -1093,12 +1124,22 @@ fn error_page(message: &str) -> Html<String> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Error - GPX to Graph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
+  :root {{
+    --paper: #f2e9d4; --paper-2: #e8dec0; --ink: #0e1424;
+    --muted: #79654a; --carmine: #b8242a;
+    --rule: rgba(14,20,36,.18);
+    --f-display: 'Fraunces', Georgia, serif;
+    --f-body: 'Bricolage Grotesque', system-ui, sans-serif;
+    --f-mono: 'Space Mono', monospace;
+  }}
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f0f2f5;
-    color: #1a1a1a;
+    font-family: var(--f-body);
+    background: var(--paper);
+    color: var(--ink);
     margin: 0;
     padding: 2rem 1rem;
   }}
@@ -1107,35 +1148,36 @@ fn error_page(message: &str) -> Html<String> {
     margin: 0 auto;
   }}
   h1 {{
+    font-family: var(--f-display);
     font-size: 1.75rem;
     font-weight: 700;
-    color: #dc2626;
+    color: var(--carmine);
     margin: 0 0 1rem;
+    font-variation-settings: "opsz" 72;
   }}
   .card {{
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
     padding: 2rem;
   }}
   .error-message {{
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    border-radius: 8px;
+    background: var(--paper);
+    border: 1px solid var(--carmine);
     padding: 1rem 1.25rem;
-    color: #991b1b;
+    color: var(--carmine);
     font-size: 0.95rem;
     margin-bottom: 1.5rem;
     white-space: pre-wrap;
     word-break: break-word;
   }}
   a {{
-    color: #2563eb;
+    color: var(--ink);
     text-decoration: none;
     font-weight: 600;
+    border-bottom: 1px solid var(--rule);
   }}
   a:hover {{
-    text-decoration: underline;
+    border-bottom-color: var(--ink);
   }}
 </style>
 </head>
@@ -1601,114 +1643,154 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared route &mdash; GPX to Graph</title>
 {og_meta}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/recents.css">
 <style>
+  :root {{
+    --paper: #f2e9d4; --paper-2: #e8dec0; --ink: #0e1424; --ink-soft: #2a2f3e;
+    --muted: #79654a; --carmine: #b8242a; --teal: #14707a;
+    --rule: rgba(14,20,36,.18);
+    --f-display: 'Fraunces', Georgia, serif;
+    --f-body: 'Bricolage Grotesque', system-ui, sans-serif;
+    --f-mono: 'Space Mono', monospace;
+  }}
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f0f2f5;
-    color: #1a1a1a;
+    font-family: var(--f-body);
+    background: var(--paper);
+    color: var(--ink);
     margin: 0;
     padding: 2rem 1rem;
   }}
-  .container {{ max-width: 900px; margin: 0 auto; }}
-  h1 {{ font-size: 1.75rem; font-weight: 700; margin: 0 0 0.25rem; }}
+  .grain {{
+    pointer-events: none; position: fixed; inset: 0; z-index: 50;
+    opacity: .22; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.055 0 0 0 0 0.078 0 0 0 0 0.141 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }}
+  .container {{ max-width: 900px; margin: 0 auto; position: relative; z-index: 1; }}
+  h1 {{
+    font-family: var(--f-display);
+    font-size: 1.75rem;
+    font-weight: 800;
+    margin: 0 0 0.25rem;
+    font-variation-settings: "opsz" 72;
+  }}
   .route-name {{
     margin: 0 0 1rem;
     font-size: 1.05rem;
     font-weight: 500;
-    color: #4b5563;
+    color: var(--muted);
     word-break: break-word;
   }}
   .back-link {{
     display: inline-block;
     margin-bottom: 1.5rem;
-    color: #2563eb;
+    color: var(--ink);
     text-decoration: none;
     font-weight: 600;
     font-size: 0.95rem;
+    border-bottom: 1px solid var(--rule);
   }}
-  .back-link:hover {{ text-decoration: underline; }}
+  .back-link:hover {{ border-bottom-color: var(--ink); }}
   .card {{
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
     padding: 1.5rem 2rem;
     margin-bottom: 1.5rem;
   }}
   .summary {{ display: flex; gap: 2rem; flex-wrap: wrap; }}
   .stat {{ text-align: center; }}
-  .stat-value {{ font-size: 1.5rem; font-weight: 700; color: #2563eb; }}
+  .stat-value {{
+    font-family: var(--f-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--carmine);
+    font-variation-settings: "opsz" 72;
+  }}
   .stat-label {{
-    font-size: 0.8rem; color: #666;
-    text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.2rem;
+    font-family: var(--f-mono);
+    font-size: 0.65rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.2rem;
   }}
   .result-banner {{
     display: flex; flex-direction: column; gap: 0.6rem;
-    border: 1px solid #dbeafe; background: #eff6ff;
+    border: 1px solid var(--ink); background: var(--paper-2);
   }}
-  .result-banner .banner-title {{ font-weight: 700; font-size: 0.95rem; color: #1e3a8a; }}
+  .result-banner .banner-title {{
+    font-family: var(--f-mono);
+    font-weight: 700; font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink);
+  }}
   .result-banner .banner-row {{ display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }}
   .result-banner input[type="text"] {{
     flex: 1 1 260px;
     min-width: 0;
     padding: 0.55rem 0.75rem;
-    border: 1px solid #bfdbfe;
-    border-radius: 6px;
+    border: 1px solid var(--rule);
     font: inherit;
-    background: #fff;
-    color: #111;
+    background: var(--paper);
+    color: var(--ink);
   }}
   .result-banner button {{
     padding: 0.55rem 0.9rem;
-    background: #2563eb;
-    color: #fff;
+    background: var(--carmine);
+    color: var(--paper);
     border: none;
-    border-radius: 6px;
     cursor: pointer;
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-family: var(--f-mono);
+    font-weight: 700;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }}
-  .result-banner button:hover {{ background: #1d4ed8; }}
-  .result-banner .ttl-note {{ font-size: 0.82rem; color: #4b5563; margin: 0; }}
-  .result-banner a {{ color: #2563eb; font-weight: 600; text-decoration: none; font-size: 0.9rem; }}
-  .result-banner a:hover {{ text-decoration: underline; }}
+  .result-banner button:hover {{ background: #961e22; }}
+  .result-banner .ttl-note {{ font-size: 0.82rem; color: var(--muted); margin: 0; }}
+  .result-banner a {{ color: var(--ink); font-weight: 600; text-decoration: none; font-size: 0.9rem; border-bottom: 1px solid var(--rule); }}
+  .result-banner a:hover {{ border-bottom-color: var(--ink); }}
   .result-banner a.btn-link {{
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     padding: 0.55rem 0.9rem;
-    background: #fff;
-    color: #2563eb;
-    border: 1px solid #2563eb;
-    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
     font-weight: 600;
     font-size: 0.9rem;
     text-decoration: none;
     white-space: nowrap;
   }}
-  .result-banner a.btn-link:hover {{ background: #eff6ff; text-decoration: none; }}
+  .result-banner a.btn-link:hover {{ background: var(--paper-2); }}
   .image-card {{
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }}
-  .image-label {{ font-weight: 600; font-size: 1rem; margin-bottom: 1rem; color: #333; }}
-  .image-card img {{ max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #e5e7eb; }}
+  .image-label {{
+    font-family: var(--f-mono);
+    font-weight: 700; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 1rem; color: var(--muted);
+  }}
+  .image-card img {{ max-width: 100%; height: auto; border: 1px solid var(--rule); }}
   .download-link {{
     display: inline-block;
     margin-top: 0.75rem;
-    color: #2563eb;
+    color: var(--ink);
     text-decoration: none;
     font-weight: 500;
     font-size: 0.9rem;
+    border-bottom: 1px solid var(--rule);
   }}
-  .download-link:hover {{ text-decoration: underline; }}
+  .download-link:hover {{ border-bottom-color: var(--ink); }}
 </style>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 <aside id="recentsSidebar" class="recents-sidebar" aria-label="Recent routes" hidden>
   <div class="rx-header">
     <span class="rx-title">Recent routes</span>
