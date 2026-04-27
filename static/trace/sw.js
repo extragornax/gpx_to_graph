@@ -1,9 +1,9 @@
 const CACHE = 'trace-v1';
 const ASSETS = [
-  '/tracker.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  'tracker.html',
+  'manifest.json',
+  'icon-192.png',
+  'icon-512.png',
 ];
 
 self.addEventListener('install', e => {

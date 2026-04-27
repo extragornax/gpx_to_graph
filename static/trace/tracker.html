@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#0E1424">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/icon-192.png">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Trace — Tracking</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -240,7 +240,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const BASE = location.origin;
+const BASE = location.href.replace(/\/[^/]*$/, '');
 
 let sessionId = null;
 let watchId = null;

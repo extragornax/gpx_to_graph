@@ -664,7 +664,7 @@
 </div>
 
 <script>
-const API = '/api';
+const API = location.pathname.replace(/\/$/, '') + '/api';
 
 // ─── Upload ───
 const overlay = document.getElementById('upload-overlay');

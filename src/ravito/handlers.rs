@@ -3,8 +3,8 @@ use std::sync::Arc;
 use axum::{
     Json,
     extract::State,
-    http::{StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    http::StatusCode,
+    response::Html,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,12 +18,8 @@ pub struct AppState {
     pub cache: Arc<OverpassCache>,
 }
 
-pub async fn index() -> Html<&'static str> {
-    Html(INDEX_HTML)
-}
-
-pub async fn app_css() -> Response {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], APP_CSS).into_response()
+pub async fn index() -> Html<String> {
+    Html(INDEX_HTML.replace("<!-- CSS_PLACEHOLDER -->", &format!("<style>{}</style>", APP_CSS)))
 }
 
 #[derive(Deserialize)]

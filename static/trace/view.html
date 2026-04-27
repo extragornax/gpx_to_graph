@@ -143,7 +143,8 @@ async function init() {
     $('v-pings').textContent = pingCount;
   }
 
-  const apiBase = isAccount ? `/api/accounts/${key}` : `/api/sessions/${key}`;
+  const pathBase = location.pathname.replace(/\/[^/]*$/, '');
+  const apiBase = isAccount ? `${pathBase}/api/accounts/${key}` : `${pathBase}/api/sessions/${key}`;
 
   try {
     const res = await fetch(apiBase);
