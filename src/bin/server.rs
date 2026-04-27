@@ -235,6 +235,8 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     gap: 0.5rem;
     border-bottom: 2px solid #e5e7eb;
     margin-bottom: 1.5rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .tab {
     background: transparent;
@@ -247,14 +249,30 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     border-bottom: 3px solid transparent;
     margin-bottom: -2px;
     transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .tab:hover { color: #333; }
   .tab.active {
     color: #2563eb;
     border-bottom-color: #2563eb;
   }
+  .tab-sep {
+    width: 1px;
+    align-self: stretch;
+    background: #d1d5db;
+    margin: 0.4rem 0.25rem;
+  }
   .panel { display: none; }
   .panel.active { display: block; }
+  .service-frame {
+    width: 100%;
+    height: calc(100vh - 10rem);
+    min-height: 500px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
   .status-line {
     margin-top: 1rem;
     font-weight: 600;
@@ -435,6 +453,12 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   <div class="tabs">
     <button type="button" class="tab active" data-target="graph">Graph</button>
     <button type="button" class="tab" data-target="merge">Merge</button>
+    <span class="tab-sep"></span>
+    <button type="button" class="tab" data-target="meteo" data-src="/meteo">Meteo</button>
+    <button type="button" class="tab" data-target="ravito" data-src="/ravito">Ravito</button>
+    <button type="button" class="tab" data-target="trace" data-src="/trace">Trace</button>
+    <button type="button" class="tab" data-target="stats" data-src="/stats">Stats</button>
+    <button type="button" class="tab" data-target="col" data-src="/col">Col</button>
   </div>
 
   <div id="panel-graph" class="panel active">
@@ -535,6 +559,12 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
       </div>
     </div>
   </div>
+
+  <div id="panel-meteo" class="panel"><iframe class="service-frame" data-src="/meteo"></iframe></div>
+  <div id="panel-ravito" class="panel"><iframe class="service-frame" data-src="/ravito"></iframe></div>
+  <div id="panel-trace" class="panel"><iframe class="service-frame" data-src="/trace"></iframe></div>
+  <div id="panel-stats" class="panel"><iframe class="service-frame" data-src="/stats"></iframe></div>
+  <div id="panel-col" class="panel"><iframe class="service-frame" data-src="/col"></iframe></div>
 </div>
 <script>
   document.querySelectorAll('.tab').forEach(function (tab) {
@@ -542,7 +572,10 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
       document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
       tab.classList.add('active');
-      document.getElementById('panel-' + tab.dataset.target).classList.add('active');
+      var panel = document.getElementById('panel-' + tab.dataset.target);
+      panel.classList.add('active');
+      var iframe = panel.querySelector('iframe.service-frame');
+      if (iframe && !iframe.src) iframe.src = iframe.dataset.src;
     });
   });
 
