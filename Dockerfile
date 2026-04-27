@@ -3,6 +3,7 @@ FROM rust:latest AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src/ src/
+COPY static/ static/
 
 RUN cargo build --release --features server --bin server
 
