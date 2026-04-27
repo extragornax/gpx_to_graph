@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <!-- CSS_PLACEHOLDER -->
 </head>
 <body>
@@ -121,6 +123,16 @@
       <dl id="legend" class="legend-grid"></dl>
     </article>
 
+    <article class="cahier cahier-map">
+      <header class="cahier-head">
+        <div class="cahier-title">
+          <span class="kicker">Carte</span>
+          <h2>Map of stops</h2>
+        </div>
+      </header>
+      <div id="map" style="height:420px;border:1.5px solid var(--ink);"></div>
+    </article>
+
     <article class="cahier">
       <header class="cahier-head">
         <div class="cahier-title">
@@ -183,11 +195,13 @@ const KIND = {
   other:       { glyph: '•',  label: 'autre',       color: '#79654a' },
 };
 
-const INK = '#14110a';
-const PAPER = '#f1e8d5';
+const INK = '#0e1424';
+const PAPER = '#f2e9d4';
 const RED = '#b8202a';
 const BLUE = '#1b4a8a';
 const SEPIA = '#79654a';
+
+let _map = null;
 
 function initStart() {
   const d = new Date();
@@ -273,8 +287,49 @@ function render(data) {
   `;
 
   renderSilhouette(data);
+  renderMap(data);
   renderChart(data);
   renderTable(data);
+}
+
+function renderMap(data) {
+  if (_map) { _map.remove(); _map = null; }
+  const route = data.route || [];
+  if (route.length < 2) return;
+
+  _map = L.map('map', { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(_map);
+
+  var latlngs = route.map(function(r) { return [r.lat, r.lon]; });
+  var polyline = L.polyline(latlngs, { color: INK, weight: 3, opacity: 0.8 }).addTo(_map);
+  _map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+
+  L.circleMarker(latlngs[0], { radius: 7, color: INK, fillColor: BLUE, fillOpacity: 1, weight: 1.5 })
+    .bindPopup('Départ').addTo(_map);
+  L.circleMarker(latlngs[latlngs.length - 1], { radius: 7, color: INK, fillColor: RED, fillOpacity: 1, weight: 1.5 })
+    .bindPopup('Arrivée').addTo(_map);
+
+  for (var p of data.pois) {
+    var kind = KIND[p.kind] || KIND.other;
+    var fillColor = kind.color;
+    var borderColor = INK;
+    if (p.status_at_eta === 'closed') { fillColor = PAPER; borderColor = RED; }
+    else if (p.status_at_eta === 'unknown') { fillColor = PAPER; borderColor = SEPIA; }
+
+    var eta = new Date(p.eta_unix * 1000);
+    var statusLabel = p.status_at_eta === 'open' ? 'ouvert' : p.status_at_eta === 'closed' ? 'fermé' : '?';
+    var popup = '<strong>' + escapeHtml(p.name || kind.label) + '</strong><br>'
+      + kind.glyph + ' ' + kind.label + ' — km ' + p.km.toFixed(1) + '<br>'
+      + 'ETA ' + fmtTime(eta) + ' — <em>' + statusLabel + '</em>';
+    if (p.opening_hours) popup += '<br><small>' + escapeHtml(p.opening_hours) + '</small>';
+
+    L.circleMarker([p.lat, p.lon], {
+      radius: 6, color: borderColor, fillColor: fillColor, fillOpacity: 1, weight: 1.5
+    }).bindPopup(popup).addTo(_map);
+  }
 }
 
 function renderSilhouette(data) {
@@ -342,7 +397,7 @@ function renderChart(data) {
       <line x1="${M.l}" x2="${W - M.r}" y1="${l.y}" y2="${l.y}"
             stroke="${SEPIA}" stroke-width="0.6" stroke-dasharray="2 5" opacity="0.55"/>
       <text x="${M.l - 14}" y="${l.y + 4}" text-anchor="end"
-            font-family="JetBrains Mono,monospace" font-size="10"
+            font-family="Space Mono,monospace" font-size="10"
             fill="${INK}" letter-spacing="1.4">${l.label}</text>
     `);
   }
@@ -356,13 +411,13 @@ function renderChart(data) {
       <line x1="${xx}" y1="${trackY - (major ? 8 : 5)}" x2="${xx}" y2="${trackY + (major ? 8 : 5)}"
             stroke="${INK}" stroke-width="${major ? 1.5 : 1}"/>
       <text x="${xx}" y="${trackY + 28}" text-anchor="middle"
-            font-family="JetBrains Mono,monospace" font-size="11"
+            font-family="Space Mono,monospace" font-size="11"
             fill="${INK}" letter-spacing="0.5">${km}</text>
     `);
   }
   svg.insertAdjacentHTML('beforeend',
     `<text x="${W - M.r}" y="${trackY + 48}" text-anchor="end"
-           font-family="JetBrains Mono,monospace" font-size="10"
+           font-family="Space Mono,monospace" font-size="10"
            fill="${SEPIA}" letter-spacing="2">KILOMÈTRES</text>`);
 
   // POI markers.
