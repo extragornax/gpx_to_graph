@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPX Toolkit — tools for your rides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- CSS_PLACEHOLDER -->
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/toolkit" class="nav-link active">Toolkit</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/stats" class="nav-link">Stats</a>
+  <a href="/col" class="nav-link">Col</a>
+</nav>
+
+<main>
+  <header class="masthead">
+    <div class="edition">
+      <span>Outils GPX</span>
+      <span class="dot">&#x2726;</span>
+      <span>Vue &middot; Profil &middot; Fusion &middot; Inversion</span>
+    </div>
+    <h1 class="title">toolkit<span class="slash">/</span><span class="title-sub">gpx</span></h1>
+    <p class="tagline">
+      Drop a <tt>.gpx</tt> file and pick your tool &mdash; <em>view</em> the route
+      on a map, generate a printable <em>elevation profile</em>, merge tracks,
+      reverse direction, or simplify the trace.
+    </p>
+    <div class="rule-double"></div>
+  </header>
+
+  <!-- shared upload zone -->
+  <section class="upload-section">
+    <div class="drop-zone" id="dropZone">
+      <svg class="drop-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 4v22M12 18l8 8 8-8"/>
+        <path d="M4 28v4a4 4 0 004 4h24a4 4 0 004-4v-4"/>
+      </svg>
+      <p class="drop-text">Drop a <tt>.gpx</tt> file here, or <span class="drop-link">browse</span></p>
+      <input type="file" id="gpxFile" accept=".gpx,application/gpx+xml,text/xml">
+    </div>
+    <div class="file-bar" id="fileBar" hidden>
+      <span class="file-name" id="fileName"></span>
+      <span class="file-meta" id="fileMeta"></span>
+      <button type="button" class="file-clear" id="fileClear" title="Remove file">&times;</button>
+    </div>
+  </section>
+
+  <!-- tool tabs -->
+  <nav class="tool-tabs" id="toolTabs">
+    <button type="button" class="tool-tab active" data-tool="viewer">
+      <span class="tab-icon">&#x25C9;</span> Viewer
+    </button>
+    <button type="button" class="tool-tab" data-tool="profile">
+      <span class="tab-icon">&#x25A4;</span> Profile
+    </button>
+    <button type="button" class="tool-tab" data-tool="merge">
+      <span class="tab-icon">&#x2295;</span> Merge
+    </button>
+    <button type="button" class="tool-tab" data-tool="reverse">
+      <span class="tab-icon">&#x21CB;</span> Reverse
+    </button>
+    <button type="button" class="tool-tab" data-tool="simplify">
+      <span class="tab-icon">&#x25C7;</span> Simplify
+    </button>
+  </nav>
+
+  <!-- VIEWER -->
+  <section class="tool-panel active" id="panel-viewer">
+    <div class="panel-empty" id="viewerEmpty">
+      <p>Upload a GPX file to see your route on a map with elevation and statistics.</p>
+    </div>
+    <div id="viewerContent" hidden>
+      <div class="viewer-grid">
+        <div id="viewerMap" class="viewer-map"></div>
+        <div class="viewer-sidebar">
+          <h3 class="sidebar-title">Route summary</h3>
+          <dl id="viewerStats" class="stats-grid"></dl>
+        </div>
+      </div>
+      <div class="chart-section">
+        <div class="chart-head">
+          <span class="kicker">Profil altim&eacute;trique</span>
+          <h3>Elevation</h3>
+        </div>
+        <div class="chart-wrap">
+          <svg id="viewerChart" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFILE -->
+  <section class="tool-panel" id="panel-profile">
+    <div class="panel-empty" id="profileEmpty">
+      <p>Upload a GPX file above, then configure settings to generate a printable elevation profile image.</p>
+    </div>
+    <div id="profileContent" hidden>
+      <p class="tool-desc">Generate a high-resolution elevation profile image. Opens the result in a new tab.</p>
+      <form id="profileForm" method="post" action="/generate" enctype="multipart/form-data" target="_blank">
+        <input type="file" name="gpx_file" id="profileGpxInput" hidden>
+        <div class="form-grid">
+          <div class="field">
+            <label for="pKmStep"><span class="num">&#x2460;</span> Grid step</label>
+            <div class="input-row">
+              <input type="number" id="pKmStep" name="km_step" value="10" step="any" min="0.1">
+              <span class="unit">km</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="pKmLabelStep"><span class="num">&#x2461;</span> Label step</label>
+            <div class="input-row">
+              <input type="number" id="pKmLabelStep" name="km_label_step" value="25" step="any" min="0.1">
+              <span class="unit">km</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="pKmLabelScale"><span class="num">&#x2462;</span> Label scale</label>
+            <input type="number" id="pKmLabelScale" name="km_label_scale" value="5" min="1" max="8">
+          </div>
+          <div class="field">
+            <label for="pClimbGain"><span class="num">&#x2463;</span> Min climb gain</label>
+            <div class="input-row">
+              <input type="number" id="pClimbGain" name="climb_min_gain" value="30" step="any" min="0">
+              <span class="unit">m</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="pSplit"><span class="num">&#x2464;</span> Split every</label>
+            <div class="input-row">
+              <input type="number" id="pSplit" name="split" value="" step="any" min="0.1" placeholder="&#x2014;">
+              <span class="unit">km</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="pFilter"><span class="num">&#x2465;</span> Checkpoint filter</label>
+            <input type="text" id="pFilter" name="checkpoint_filter" value="" placeholder="Optional">
+          </div>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" name="mirror" value="on">
+          <span class="check-mark"></span>
+          Mirror horizontally
+        </label>
+        <div class="actions">
+          <button type="submit">
+            <span class="btn-arrow">&#x25B8;</span>
+            <span class="btn-label">Generate profile</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- MERGE -->
+  <section class="tool-panel" id="panel-merge">
+    <p class="tool-desc">Select 2 to 5 GPX files. They are sorted by timestamp and merged into a single track.</p>
+    <form id="mergeForm" enctype="multipart/form-data">
+      <div class="field">
+        <label for="mergeFiles"><span class="num">&#x2460;</span> GPX files</label>
+        <input type="file" id="mergeFiles" name="files" accept=".gpx" multiple required>
+      </div>
+      <div class="field">
+        <label for="mergeCreator"><span class="num">&#x2461;</span> Device name</label>
+        <input type="text" id="mergeCreator" name="creator" placeholder="e.g. Garmin Edge 1040 (optional)">
+      </div>
+      <div class="actions">
+        <button type="submit">
+          <span class="btn-arrow">&#x2295;</span>
+          <span class="btn-label">Merge &amp; download</span>
+        </button>
+        <p id="mergeStatus" class="status"></p>
+      </div>
+    </form>
+  </section>
+
+  <!-- REVERSE -->
+  <section class="tool-panel" id="panel-reverse">
+    <div class="panel-empty" id="reverseEmpty">
+      <p>Upload a GPX file above to reverse the direction of the track.</p>
+    </div>
+    <div id="reverseContent" hidden>
+      <p class="tool-desc">Reverses the order of all track points so the route runs in the opposite direction. All metadata and extensions are preserved.</p>
+      <div class="actions">
+        <button type="button" id="reverseBtn">
+          <span class="btn-arrow">&#x21CB;</span>
+          <span class="btn-label">Reverse &amp; download</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SIMPLIFY -->
+  <section class="tool-panel" id="panel-simplify">
+    <div class="panel-empty" id="simplifyEmpty">
+      <p>Upload a GPX file above to reduce the number of track points.</p>
+    </div>
+    <div id="simplifyContent" hidden>
+      <p class="tool-desc">Uses the Douglas-Peucker algorithm to reduce track points while preserving the shape of the route.</p>
+      <div class="field">
+        <label for="simplifyTolerance"><span class="num">&#x2460;</span> Tolerance</label>
+        <div class="slider-row">
+          <input type="range" id="simplifyTolerance" min="0" max="100" value="30" step="1">
+          <span id="simplifyInfo" class="slider-info">&mdash;</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="simplifyBtn">
+          <span class="btn-arrow">&#x25C7;</span>
+          <span class="btn-label">Simplify &amp; download</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <span class="col-left">&mdash; Fin &mdash;</span>
+    <span class="col-mid">Tools for riders, built in ink.</span>
+    <span class="col-right">toolkit/gpx</span>
+  </footer>
+</main>
+
+<script>
+var $ = function(s) { return document.querySelector(s); };
+var $$ = function(s) { return document.querySelectorAll(s); };
+
+var INK = '#0e1424';
+var PAPER = '#f2e9d4';
+var RED = '#b8202a';
+var BLUE = '#1b4a8a';
+var SEPIA = '#79654a';
+
+var currentFile = null;
+var currentText = null;
+var currentData = null;
+var viewerMap = null;
+
+// ── GPX parsing ──
+
+function haversine(lat1, lon1, lat2, lon2) {
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function parseGpx(text) {
+  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var err = doc.querySelector('parsererror');
+  if (err) throw new Error('Invalid XML: ' + err.textContent.slice(0, 80));
+
+  var trkpts = doc.querySelectorAll('trkpt');
+  if (trkpts.length === 0) throw new Error('No track points found in this GPX file.');
+
+  var points = [];
+  var totalKm = 0, elevGain = 0, elevLoss = 0;
+  var minEle = Infinity, maxEle = -Infinity;
+  var prevLat, prevLon, prevEle;
+
+  for (var i = 0; i < trkpts.length; i++) {
+    var pt = trkpts[i];
+    var lat = parseFloat(pt.getAttribute('lat'));
+    var lon = parseFloat(pt.getAttribute('lon'));
+    var eleEl = pt.querySelector('ele');
+    var ele = eleEl ? parseFloat(eleEl.textContent) : null;
+    var timeEl = pt.querySelector('time');
+    var time = timeEl ? new Date(timeEl.textContent) : null;
+
+    if (i > 0) {
+      totalKm += haversine(prevLat, prevLon, lat, lon);
+      if (ele !== null && prevEle !== null) {
+        var diff = ele - prevEle;
+        if (diff > 0) elevGain += diff;
+        else elevLoss += Math.abs(diff);
+      }
+    }
+    if (ele !== null) {
+      if (ele < minEle) minEle = ele;
+      if (ele > maxEle) maxEle = ele;
+    }
+
+    points.push({ lat: lat, lon: lon, ele: ele, time: time, km: totalKm });
+    prevLat = lat; prevLon = lon; prevEle = ele;
+  }
+
+  var nameEl = doc.querySelector('metadata > name') || doc.querySelector('trk > name');
+  return {
+    points: points,
+    name: nameEl ? nameEl.textContent.trim() : null,
+    totalKm: totalKm,
+    elevGain: elevGain,
+    elevLoss: elevLoss,
+    minEle: isFinite(minEle) ? minEle : null,
+    maxEle: isFinite(maxEle) ? maxEle : null,
+    pointCount: points.length
+  };
+}
+
+// ── Viewer rendering ──
+
+function renderViewer(data) {
+  renderMap(data);
+  renderChart(data);
+  renderStats(data);
+}
+
+function renderMap(data) {
+  if (viewerMap) { viewerMap.remove(); viewerMap = null; }
+  if (data.points.length < 2) return;
+
+  viewerMap = L.map('viewerMap', { scrollWheelZoom: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap', maxZoom: 18
+  }).addTo(viewerMap);
+
+  var latlngs = data.points.map(function(p) { return [p.lat, p.lon]; });
+  var polyline = L.polyline(latlngs, { color: INK, weight: 3, opacity: 0.8 }).addTo(viewerMap);
+  viewerMap.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+
+  L.circleMarker(latlngs[0], {
+    radius: 7, color: INK, fillColor: BLUE, fillOpacity: 1, weight: 1.5
+  }).bindPopup('Start').addTo(viewerMap);
+  L.circleMarker(latlngs[latlngs.length - 1], {
+    radius: 7, color: INK, fillColor: RED, fillOpacity: 1, weight: 1.5
+  }).bindPopup('Finish').addTo(viewerMap);
+}
+
+function svgEl(parent, tag, attrs) {
+  var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (var k in attrs) el.setAttribute(k, attrs[k]);
+  parent.appendChild(el);
+  return el;
+}
+
+function renderChart(data) {
+  var svg = $('#viewerChart');
+  svg.innerHTML = '';
+  var pts = data.points;
+  var hasEle = pts.some(function(p) { return p.ele !== null; });
+  if (!hasEle || pts.length < 2) {
+    var t = svgEl(svg, 'text', { x: 600, y: 150, 'text-anchor': 'middle',
+      'font-family': "'Fraunces', serif", 'font-size': 18, fill: SEPIA,
+      'font-style': 'italic' });
+    t.textContent = 'No elevation data available.';
+    return;
+  }
+
+  var W = 1200, H = 300;
+  var M = { l: 56, r: 20, t: 20, b: 50 };
+  var plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+  var xMax = data.totalKm;
+  var eMin = data.minEle, eMax = data.maxEle;
+  if (eMin === eMax) { eMin -= 10; eMax += 10; }
+  var pad = (eMax - eMin) * 0.1 || 10;
+  eMin -= pad; eMax += pad;
+
+  var xS = function(km) { return M.l + (km / xMax) * plotW; };
+  var yS = function(ele) { return M.t + plotH - ((ele - eMin) / (eMax - eMin)) * plotH; };
+
+  var defs = svgEl(svg, 'defs', {});
+  defs.innerHTML =
+    '<pattern id="hatch" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="6" stroke="' + INK + '" stroke-width="0.6" stroke-opacity="0.18"/></pattern>';
+
+  svgEl(svg, 'rect', { x: M.l, y: M.t, width: plotW, height: plotH,
+    fill: 'rgba(14,20,36,0.02)', stroke: 'rgba(14,20,36,0.12)' });
+
+  for (var k = 0; k <= 4; k++) {
+    var v = eMin + (eMax - eMin) * (k / 4);
+    var yy = yS(v);
+    svgEl(svg, 'line', { x1: M.l, x2: W - M.r, y1: yy, y2: yy,
+      stroke: INK, 'stroke-opacity': 0.1 });
+    var lbl = svgEl(svg, 'text', { x: M.l - 8, y: yy + 4, 'text-anchor': 'end',
+      'font-family': "'Space Mono', monospace", 'font-size': 10, fill: INK, 'fill-opacity': 0.6 });
+    lbl.textContent = Math.round(v) + ' m';
+  }
+
+  var dFill = 'M ' + xS(pts[0].km) + ' ' + (M.t + plotH) + ' ';
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].ele !== null) dFill += 'L ' + xS(pts[i].km) + ' ' + yS(pts[i].ele) + ' ';
+  }
+  dFill += 'L ' + xS(pts[pts.length - 1].km) + ' ' + (M.t + plotH) + ' Z';
+  svgEl(svg, 'path', { d: dFill, fill: 'url(#hatch)' });
+
+  var dLine = '';
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].ele !== null) {
+      dLine += (dLine ? ' L ' : 'M ') + xS(pts[i].km) + ' ' + yS(pts[i].ele);
+    }
+  }
+  var line = svgEl(svg, 'path', { d: dLine, fill: 'none', stroke: INK,
+    'stroke-width': 1.8, 'stroke-linejoin': 'round',
+    'stroke-dasharray': 5000, 'stroke-dashoffset': 5000 });
+  line.animate([{ strokeDashoffset: 5000 }, { strokeDashoffset: 0 }],
+    { duration: 800, easing: 'cubic-bezier(.3,.7,.2,1)', fill: 'forwards' });
+
+  var step = xMax > 200 ? 50 : xMax > 80 ? 20 : xMax > 30 ? 10 : 5;
+  for (var km = 0; km <= xMax + 0.001; km += step) {
+    var xx = xS(km);
+    svgEl(svg, 'line', { x1: xx, y1: M.t + plotH, x2: xx, y2: M.t + plotH + 5,
+      stroke: INK, 'stroke-width': 1 });
+    var t = svgEl(svg, 'text', { x: xx, y: M.t + plotH + 20, 'text-anchor': 'middle',
+      'font-family': "'Space Mono', monospace", 'font-size': 10, fill: INK });
+    t.textContent = km;
+  }
+  var kmLbl = svgEl(svg, 'text', { x: W - M.r, y: M.t + plotH + 38, 'text-anchor': 'end',
+    'font-family': "'Fraunces', serif", 'font-style': 'italic', 'font-size': 11,
+    fill: INK, 'fill-opacity': 0.6 });
+  kmLbl.textContent = '— km —';
+}
+
+function renderStats(data) {
+  var dl = $('#viewerStats');
+  var html = '';
+  if (data.name) {
+    html += '<div><dt>Route name</dt><dd style="font-size:1rem;font-weight:600">' +
+      escapeHtml(data.name) + '</dd></div>';
+  }
+  html +=
+    '<div><dt>Distance</dt><dd>' + data.totalKm.toFixed(1) + '<span class="unit">km</span></dd></div>' +
+    '<div><dt>Elevation gain</dt><dd>+' + Math.round(data.elevGain) + '<span class="unit">m</span>' +
+    '<span class="sub">−' + Math.round(data.elevLoss) + ' m loss</span></dd></div>' +
+    '<div><dt>Elevation range</dt><dd>' + (data.minEle !== null ? Math.round(data.minEle) : '—') +
+    ' – ' + (data.maxEle !== null ? Math.round(data.maxEle) : '—') +
+    '<span class="unit">m</span></dd></div>' +
+    '<div><dt>Track points</dt><dd>' + data.pointCount.toLocaleString() + '</dd></div>';
+
+  var first = data.points[0], last = data.points[data.points.length - 1];
+  if (first.time && last.time) {
+    var durMs = last.time - first.time;
+    if (durMs > 0) {
+      var h = Math.floor(durMs / 3600000);
+      var m = Math.floor((durMs % 3600000) / 60000);
+      var durStr = h > 0 ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm';
+      html += '<div><dt>Duration</dt><dd>' + durStr + '</dd></div>';
+      html += '<div><dt>Avg speed</dt><dd>' +
+        (data.totalKm / (durMs / 3600000)).toFixed(1) + '<span class="unit">km/h</span></dd></div>';
+    }
+  }
+  dl.innerHTML = html;
+}
+
+// ── Reverse ──
+
+function reverseGpx(text) {
+  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var segs = doc.querySelectorAll('trkseg');
+  for (var i = 0; i < segs.length; i++) {
+    var pts = [];
+    var children = segs[i].querySelectorAll('trkpt');
+    for (var j = 0; j < children.length; j++) pts.push(children[j]);
+    for (var j = pts.length - 1; j >= 0; j--) segs[i].appendChild(pts[j]);
+  }
+  return new XMLSerializer().serializeToString(doc);
+}
+
+// ── Simplify (Douglas-Peucker) ──
+
+function perpDist(p, a, b) {
+  var dx = b[0] - a[0], dy = b[1] - a[1];
+  var len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.sqrt((p[0]-a[0])*(p[0]-a[0]) + (p[1]-a[1])*(p[1]-a[1]));
+  var t = Math.max(0, Math.min(1, ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / len2));
+  var px = a[0] + t * dx, py = a[1] + t * dy;
+  return Math.sqrt((p[0]-px)*(p[0]-px) + (p[1]-py)*(p[1]-py));
+}
+
+function douglasPeucker(coords, tolerance) {
+  var n = coords.length;
+  if (n <= 2) {
+    var s = new Set();
+    for (var i = 0; i < n; i++) s.add(i);
+    return s;
+  }
+  var keep = new Set([0, n - 1]);
+  var stack = [[0, n - 1]];
+  while (stack.length) {
+    var pair = stack.pop(), start = pair[0], end = pair[1];
+    var maxDist = 0, maxIdx = start;
+    for (var i = start + 1; i < end; i++) {
+      var d = perpDist(coords[i], coords[start], coords[end]);
+      if (d > maxDist) { maxDist = d; maxIdx = i; }
+    }
+    if (maxDist > tolerance) {
+      keep.add(maxIdx);
+      stack.push([start, maxIdx]);
+      stack.push([maxIdx, end]);
+    }
+  }
+  return keep;
+}
+
+function simplifyGpx(text, tolerance) {
+  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var segs = doc.querySelectorAll('trkseg');
+  var totalBefore = 0, totalAfter = 0;
+  for (var s = 0; s < segs.length; s++) {
+    var pts = [];
+    var children = segs[s].querySelectorAll('trkpt');
+    for (var j = 0; j < children.length; j++) pts.push(children[j]);
+    totalBefore += pts.length;
+    var coords = pts.map(function(pt) {
+      return [parseFloat(pt.getAttribute('lat')), parseFloat(pt.getAttribute('lon'))];
+    });
+    var keep = douglasPeucker(coords, tolerance);
+    for (var j = pts.length - 1; j >= 0; j--) {
+      if (!keep.has(j)) pts[j].parentNode.removeChild(pts[j]);
+    }
+    totalAfter += keep.size;
+  }
+  return { xml: new XMLSerializer().serializeToString(doc), before: totalBefore, after: totalAfter };
+}
+
+function sliderToTolerance(val) {
+  return 0.000005 * Math.pow(400, val / 100);
+}
+
+// ── Helpers ──
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function downloadGpx(content, filename) {
+  var blob = new Blob([content], { type: 'application/gpx+xml' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── UI: tab switching ──
+
+function showPanel(name) {
+  $$('.tool-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.tool === name); });
+  $$('.tool-panel').forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+  if (name === 'viewer' && viewerMap) setTimeout(function() { viewerMap.invalidateSize(); }, 50);
+}
+
+$$('.tool-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() { showPanel(tab.dataset.tool); });
+});
+
+// ── UI: file handling ──
+
+function handleFile(file) {
+  currentFile = file;
+  var reader = new FileReader();
+  reader.onload = function() {
+    try {
+      currentText = reader.result;
+      currentData = parseGpx(currentText);
+    } catch (e) {
+      currentText = null; currentData = null;
+      $('#fileName').textContent = 'Error: ' + e.message;
+      $('#fileMeta').textContent = '';
+      $('#fileBar').hidden = false;
+      return;
+    }
+
+    $('#fileName').textContent = file.name;
+    var meta = currentData.totalKm.toFixed(1) + ' km';
+    if (currentData.elevGain > 0) meta += ' · +' + Math.round(currentData.elevGain) + ' m';
+    meta += ' · ' + currentData.pointCount + ' pts';
+    $('#fileMeta').textContent = meta;
+    $('#fileBar').hidden = false;
+
+    $('#viewerEmpty').hidden = true;
+    $('#viewerContent').hidden = false;
+    renderViewer(currentData);
+
+    $('#profileEmpty').hidden = true;
+    $('#profileContent').hidden = false;
+    $('#reverseEmpty').hidden = true;
+    $('#reverseContent').hidden = false;
+    $('#simplifyEmpty').hidden = true;
+    $('#simplifyContent').hidden = false;
+
+    syncProfileFile();
+    updateSimplifyPreview();
+  };
+  reader.readAsText(file);
+}
+
+function syncProfileFile() {
+  if (!currentFile) return;
+  var dt = new DataTransfer();
+  dt.items.add(currentFile);
+  $('#profileGpxInput').files = dt.files;
+}
+
+function clearFile() {
+  currentFile = null; currentText = null; currentData = null;
+  $('#fileBar').hidden = true;
+  $('#gpxFile').value = '';
+  $('#viewerEmpty').hidden = false;
+  $('#viewerContent').hidden = true;
+  $('#profileEmpty').hidden = false;
+  $('#profileContent').hidden = true;
+  $('#reverseEmpty').hidden = false;
+  $('#reverseContent').hidden = true;
+  $('#simplifyEmpty').hidden = false;
+  $('#simplifyContent').hidden = true;
+  if (viewerMap) { viewerMap.remove(); viewerMap = null; }
+  $('#viewerChart').innerHTML = '';
+  $('#viewerStats').innerHTML = '';
+  $('#profileGpxInput').value = '';
+}
+
+// drop zone
+var dropZone = $('#dropZone');
+['dragenter', 'dragover'].forEach(function(ev) {
+  dropZone.addEventListener(ev, function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+});
+dropZone.addEventListener('dragleave', function(e) {
+  if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  var files = e.dataTransfer && e.dataTransfer.files;
+  if (files && files.length > 0) handleFile(files[0]);
+});
+$('#gpxFile').addEventListener('change', function() {
+  if (this.files.length > 0) handleFile(this.files[0]);
+});
+$('#fileClear').addEventListener('click', clearFile);
+
+// ── Reverse action ──
+
+$('#reverseBtn').addEventListener('click', function() {
+  if (!currentText) return;
+  var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
+  downloadGpx(reverseGpx(currentText), name + '_reversed.gpx');
+});
+
+// ── Simplify action ──
+
+function updateSimplifyPreview() {
+  if (!currentData) { $('#simplifyInfo').textContent = '—'; return; }
+  var tol = sliderToTolerance(parseInt($('#simplifyTolerance').value, 10));
+  var result = simplifyGpx(currentText, tol);
+  var pct = ((1 - result.after / result.before) * 100).toFixed(0);
+  $('#simplifyInfo').textContent = result.after + ' / ' + result.before + ' pts (−' + pct + '%)';
+}
+
+$('#simplifyTolerance').addEventListener('input', updateSimplifyPreview);
+
+$('#simplifyBtn').addEventListener('click', function() {
+  if (!currentText) return;
+  var tol = sliderToTolerance(parseInt($('#simplifyTolerance').value, 10));
+  var result = simplifyGpx(currentText, tol);
+  var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
+  downloadGpx(result.xml, name + '_simplified.gpx');
+});
+
+// ── Merge action ──
+
+$('#mergeForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var files = $('#mergeFiles').files;
+  var status = $('#mergeStatus');
+  if (files.length < 2 || files.length > 5) {
+    status.textContent = 'Select between 2 and 5 GPX files.';
+    status.className = 'status';
+    return;
+  }
+  status.textContent = 'Merging…';
+  status.className = 'status info';
+  fetch('/merge', { method: 'POST', body: new FormData(this) })
+    .then(function(res) {
+      if (!res.ok) return res.text().then(function(t) { throw new Error(t); });
+      return res.json();
+    })
+    .then(function(payload) {
+      if (!payload.gpx) throw new Error('Empty response');
+      downloadGpx(payload.gpx, 'merged.gpx');
+      status.textContent = 'Merged successfully — merged.gpx downloaded.';
+      status.className = 'status ok';
+    })
+    .catch(function(err) {
+      status.textContent = 'Error: ' + err.message;
+      status.className = 'status';
+    });
+});
+</script>
+</body>
+</html>

@@ -508,6 +508,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   <nav class="site-nav">
     <a href="/" class="nav-brand">GPX Tools</a>
     <a href="/" class="nav-link active">Graph</a>
+    <a href="/toolkit" class="nav-link">Toolkit</a>
     <a href="/meteo" class="nav-link">Meteo</a>
     <a href="/ravito" class="nav-link">Ravito</a>
     <a href="/trace" class="nav-link">Trace</a>
@@ -2633,7 +2634,8 @@ async fn main() {
         .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))
         .nest("/trace", gpx_to_graph::trace::router(trace_state))
         .nest("/stats", gpx_to_graph::strava_stats::router())
-        .nest("/col", gpx_to_graph::col::router(col_state));
+        .nest("/col", gpx_to_graph::col::router(col_state))
+        .nest("/toolkit", gpx_to_graph::toolkit::router());
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {
