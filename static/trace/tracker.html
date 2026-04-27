@@ -240,7 +240,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const BASE = location.href.replace(/\/[^/]*$/, '');
+const BASE = location.origin + '/trace';
 
 let sessionId = null;
 let watchId = null;

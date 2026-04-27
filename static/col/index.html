@@ -233,7 +233,7 @@ let authMode = 'login';
 const $  = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
-const COL_BASE = location.pathname.replace(/\/[^/]*$/, '');
+const COL_BASE = '/col';
 // Detect public profile mode from URL
 const publicMatch = location.pathname.match(/\/p\/([^/]+)$/);
 const publicShareId = publicMatch ? decodeURIComponent(publicMatch[1]) : null;
