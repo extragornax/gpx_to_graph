@@ -188,12 +188,17 @@ async fn owntracks_ping(
 struct CreateAccount {
     slug: String,
     password: String,
+    #[serde(default)]
+    website: Option<String>,
 }
 
 async fn create_account(
     State(state): State<SharedState>,
     Json(body): Json<CreateAccount>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let slug = body.slug.trim().to_lowercase();
     if slug.len() < 2 || slug.len() > 32 || !slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(StatusCode::BAD_REQUEST);

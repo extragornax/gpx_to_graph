@@ -41,12 +41,17 @@ async fn page_index() -> Html<String> {
 struct AuthBody {
     username: String,
     password: String,
+    #[serde(default)]
+    website: Option<String>,
 }
 
 async fn register(
     State(state): State<SharedState>,
     Json(body): Json<AuthBody>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid request".into()));
+    }
     if body.username.len() < 2 || body.password.len() < 6 {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -81,6 +86,9 @@ async fn login(
     State(state): State<SharedState>,
     Json(body): Json<AuthBody>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if body.website.as_ref().is_some_and(|w| !w.is_empty()) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid request".into()));
+    }
     let (user_id, hash) = state
         .db
         .get_user_by_username(&body.username)

@@ -175,6 +175,7 @@
     <input type="text" id="acc-slug" placeholder="slug (e.g. gaspard)">
     <input type="password" id="acc-pass" placeholder="password">
   </div>
+  <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><input type="text" id="acc-hp" tabindex="-1" autocomplete="off" placeholder="Website"></div>
   <div class="row">
     <button class="btn-sm" id="btn-login">Login</button>
     <button class="btn-sm" id="btn-register">Create</button>
@@ -499,7 +500,7 @@ async function register(slug, password) {
   const res = await fetch(`${BASE}/api/accounts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, password }),
+    body: JSON.stringify({ slug, password, website: $('acc-hp').value }),
   });
   if (res.status === 409) throw new Error('Slug already taken');
   if (res.status === 400) throw new Error('Slug: 2-32 chars (a-z, 0-9, -, _). Password: 4+ chars.');
@@ -510,6 +511,7 @@ async function register(slug, password) {
 }
 
 $('btn-login').onclick = async () => {
+  if ($('acc-hp').value) return;
   const slug = $('acc-slug').value.trim().toLowerCase();
   const pass = $('acc-pass').value;
   $('acc-msg').className = 'msg';

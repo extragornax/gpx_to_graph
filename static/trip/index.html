@@ -50,12 +50,14 @@
     <form id="loginForm" class="auth-form">
       <div class="field"><label>Username</label><input type="text" id="loginUser" required></div>
       <div class="field"><label>Password</label><input type="password" id="loginPass" required></div>
+      <div class="field" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><label>Website</label><input type="text" id="loginHp" tabindex="-1" autocomplete="off"></div>
       <div class="auth-error" id="loginError"></div>
       <button type="submit" class="auth-btn">Log in</button>
     </form>
     <form id="registerForm" class="auth-form" style="display:none">
       <div class="field"><label>Username</label><input type="text" id="regUser" required minlength="2"></div>
       <div class="field"><label>Password</label><input type="password" id="regPass" required minlength="6"></div>
+      <div class="field" aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><label>Website</label><input type="text" id="regHp" tabindex="-1" autocomplete="off"></div>
       <div class="auth-error" id="regError"></div>
       <button type="submit" class="auth-btn">Create account</button>
     </form>
@@ -154,7 +156,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
   try {
     var res = await fetch(API + '/login', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value })
+      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value, website: document.getElementById('loginHp').value })
     });
     if (!res.ok) { err.textContent = await res.text(); return; }
     var data = await res.json();
@@ -169,7 +171,7 @@ document.getElementById('registerForm').addEventListener('submit', async functio
   try {
     var res = await fetch(API + '/register', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value })
+      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value, website: document.getElementById('regHp').value })
     });
     if (!res.ok) { err.textContent = await res.text(); return; }
     var data = await res.json();

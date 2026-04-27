@@ -166,6 +166,7 @@
     <form class="auth-form" id="auth-form">
       <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
       <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
+      <div aria-hidden="true" style="position:absolute;left:-9999px;top:-9999px"><input type="text" id="auth-hp" tabindex="-1" autocomplete="off" placeholder="Website"></div>
       <button class="btn" type="submit" id="auth-submit">Log in</button>
       <div class="error hidden" id="auth-error"></div>
     </form>
@@ -266,7 +267,7 @@ $('#auth-form').addEventListener('submit', async e => {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, website: $('#auth-hp').value }),
   });
 
   if (res.ok) {
