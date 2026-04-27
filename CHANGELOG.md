@@ -3,6 +3,14 @@
 ## 2026-04-27
 
 ### Added
+- **Trip Planner** (`/trip`) — multi-day GPX route splitter:
+  - User accounts (register/login) to persist uploaded GPX files
+  - Upload a GPX route and split it into multi-day stages
+  - Interactive SVG elevation profile with draggable day boundary handles
+  - Leaflet map with color-coded day segments and boundary markers
+  - Per-day stats table (distance, elevation gain/loss, start/end elevation)
+  - Download individual day GPX files
+  - Map follows the cursor during drag without resetting zoom
 - **GPX Toolkit** (`/toolkit`) — client-side GPX multi-tool with five panels:
   - *Viewer*: Leaflet map + SVG elevation chart + stats grid
   - *Profile*: generate elevation graph via `/generate` with full options

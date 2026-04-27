@@ -350,7 +350,7 @@ function renderMap() {
     dayLayers.push(marker);
   }
 
-  if (allLatLngs.length > 0) {
+  if (allLatLngs.length > 0 && dragging === null) {
     map.fitBounds(L.latLngBounds(allLatLngs), { padding: [30, 30] });
   }
 }
@@ -488,6 +488,11 @@ function moveBoundary(idx, km) {
   renderProfile();
   renderMap();
   renderStats();
+
+  var bpt = pts[bounds[idx]];
+  if (map && bpt) {
+    map.panTo([bpt.lat, bpt.lon], { animate: false });
+  }
 }
 
 function debounceSave() {
