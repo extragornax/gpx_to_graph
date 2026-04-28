@@ -632,41 +632,73 @@ $$('.tool-tab').forEach(function(tab) {
 
 function handleFile(file) {
   currentFile = file;
+  $('#fileName').textContent = file.name;
+  $('#fileMeta').textContent = 'Reading…';
+  $('#fileBar').hidden = false;
+
   var reader = new FileReader();
   reader.onload = function() {
-    try {
-      currentText = reader.result;
-      currentData = parseGpx(currentText);
-    } catch (e) {
-      currentText = null; currentData = null;
-      $('#fileName').textContent = 'Error: ' + e.message;
-      $('#fileMeta').textContent = '';
-      $('#fileBar').hidden = false;
-      return;
+    var steps = [
+      function() {
+        $('#fileMeta').textContent = 'Parsing GPX…';
+      },
+      function() {
+        try {
+          currentText = reader.result;
+          currentData = parseGpx(currentText);
+        } catch (e) {
+          currentText = null; currentData = null;
+          $('#fileName').textContent = 'Error: ' + e.message;
+          $('#fileMeta').textContent = '';
+          return false;
+        }
+      },
+      function() {
+        var meta = currentData.totalKm.toFixed(1) + ' km';
+        if (currentData.elevGain > 0) meta += ' · +' + Math.round(currentData.elevGain) + ' m';
+        meta += ' · ' + currentData.pointCount + ' pts';
+        $('#fileMeta').textContent = meta + ' · Rendering map…';
+      },
+      function() {
+        $('#viewerEmpty').hidden = true;
+        $('#viewerContent').hidden = false;
+        renderViewer(currentData);
+        $('#fileMeta').textContent = $('#fileMeta').textContent.replace(' · Rendering map…', '') + ' · Preparing tools…';
+      },
+      function() {
+        $('#profileEmpty').hidden = true;
+        $('#profileContent').hidden = false;
+        $('#reverseEmpty').hidden = true;
+        $('#reverseContent').hidden = false;
+        $('#simplifyEmpty').hidden = true;
+        $('#simplifyContent').hidden = false;
+        syncProfileFile();
+        buildStripOptions();
+      },
+      function() {
+        var origSize = new Blob([currentText]).size;
+        if (origSize > TARGET_SIZE) {
+          $('#fileMeta').textContent = $('#fileMeta').textContent.replace(' · Preparing tools…', '') + ' · Auto-fitting simplify…';
+        }
+      },
+      function() {
+        autoFitTolerance();
+        updateSimplifyPreview();
+        var meta = currentData.totalKm.toFixed(1) + ' km';
+        if (currentData.elevGain > 0) meta += ' · +' + Math.round(currentData.elevGain) + ' m';
+        meta += ' · ' + currentData.pointCount + ' pts';
+        $('#fileMeta').textContent = meta;
+      }
+    ];
+    var i = 0;
+    function runNext() {
+      if (i >= steps.length) return;
+      var result = steps[i]();
+      i++;
+      if (result === false) return;
+      setTimeout(runNext, 0);
     }
-
-    $('#fileName').textContent = file.name;
-    var meta = currentData.totalKm.toFixed(1) + ' km';
-    if (currentData.elevGain > 0) meta += ' · +' + Math.round(currentData.elevGain) + ' m';
-    meta += ' · ' + currentData.pointCount + ' pts';
-    $('#fileMeta').textContent = meta;
-    $('#fileBar').hidden = false;
-
-    $('#viewerEmpty').hidden = true;
-    $('#viewerContent').hidden = false;
-    renderViewer(currentData);
-
-    $('#profileEmpty').hidden = true;
-    $('#profileContent').hidden = false;
-    $('#reverseEmpty').hidden = true;
-    $('#reverseContent').hidden = false;
-    $('#simplifyEmpty').hidden = true;
-    $('#simplifyContent').hidden = false;
-
-    syncProfileFile();
-    buildStripOptions();
-    autoFitTolerance();
-    updateSimplifyPreview();
+    runNext();
   };
   reader.readAsText(file);
 }
