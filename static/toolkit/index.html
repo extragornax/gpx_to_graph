@@ -263,6 +263,31 @@ var currentText = null;
 var currentData = null;
 var viewerMap = null;
 
+// ── Namespace fix ──
+
+function fixGpxNamespaces(text) {
+  var prefixRe = /<\/?([a-zA-Z]\w*):/g;
+  var used = new Set();
+  var m;
+  while ((m = prefixRe.exec(text)) !== null) used.add(m[1]);
+  var known = {
+    gpxtpx: 'http://www.garmin.com/xmlschemas/TrackPointExtension/v1',
+    gpxx: 'http://www.garmin.com/xmlschemas/GpxExtensions/v3',
+    cluetrust: 'http://www.cluetrust.com/XML/GPXDATA/1/0',
+    power: 'http://www.garmin.com/xmlschemas/PowerExtension/v1',
+    ns3: 'http://www.garmin.com/xmlschemas/TrackPointExtension/v1',
+    xsi: 'http://www.w3.org/2001/XMLSchema-instance'
+  };
+  var missing = [];
+  used.forEach(function(p) {
+    if (p === 'xml') return;
+    if (!new RegExp('xmlns:' + p + '\\s*=').test(text))
+      missing.push('xmlns:' + p + '="' + (known[p] || 'urn:unknown:' + p) + '"');
+  });
+  if (missing.length === 0) return text;
+  return text.replace(/<gpx\b/, '<gpx ' + missing.join(' '));
+}
+
 // ── GPX parsing ──
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -276,7 +301,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 function parseGpx(text) {
-  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
   var err = doc.querySelector('parsererror');
   if (err) throw new Error('Invalid XML: ' + err.textContent.slice(0, 80));
 
@@ -474,7 +499,7 @@ function renderStats(data) {
 // ── Reverse ──
 
 function reverseGpx(text) {
-  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
   var segs = doc.querySelectorAll('trkseg');
   for (var i = 0; i < segs.length; i++) {
     var pts = [];
@@ -522,7 +547,7 @@ function douglasPeucker(coords, tolerance) {
 }
 
 function simplifyGpx(text, tolerance, stripSet) {
-  var doc = new DOMParser().parseFromString(text, 'text/xml');
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
   var segs = doc.querySelectorAll('trkseg');
   var totalBefore = 0, totalAfter = 0;
   var keptCoords = [];
@@ -588,6 +613,7 @@ function downloadGpx(content, filename) {
 function showPanel(name) {
   $$('.tool-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.tool === name); });
   $$('.tool-panel').forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+  $('.upload-section').hidden = (name === 'merge');
   if (name === 'viewer' && viewerMap) setTimeout(function() { viewerMap.invalidateSize(); }, 50);
   if (name === 'simplify' && simplifyMap) setTimeout(function() { simplifyMap.invalidateSize(); }, 50);
 }
@@ -703,7 +729,7 @@ var lastSimplifyResult = null;
 
 function detectExtensions() {
   if (!currentText) return [];
-  var doc = new DOMParser().parseFromString(currentText, 'text/xml');
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(currentText), 'text/xml');
   var pts = doc.querySelectorAll('trkpt');
   var found = {};
   for (var i = 0; i < Math.min(pts.length, 200); i++) {
