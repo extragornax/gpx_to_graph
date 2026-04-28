@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Multipart, Path as AxumPath},
+    extract::{DefaultBodyLimit, Json, Multipart, Path as AxumPath, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -12,6 +15,14 @@ use axum::{
 use base64::Engine;
 use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
+
+struct MergeSession {
+    files: Vec<(Option<String>, Vec<u8>)>,
+    created: Instant,
+}
+
+type MergeSessions = Arc<Mutex<HashMap<String, MergeSession>>>;
 
 const SHARE_TTL_SECS: u64 = 30 * 24 * 3600;
 
@@ -910,15 +921,28 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
       mergeStatus.className = 'status-line err';
       return;
     }
-    mergeStatus.textContent = 'Merging…';
-    mergeStatus.className = 'status-line info';
     mergeResults.classList.remove('visible');
     try {
-      var res = await fetch('/merge', { method: 'POST', body: new FormData(mergeForm) });
-      if (!res.ok) {
-        var errText = await res.text();
-        throw new Error(errText || ('Request failed: ' + res.status));
+      var session = null;
+      for (var i = 0; i < files.length; i++) {
+        mergeStatus.textContent = 'Uploading file ' + (i + 1) + ' of ' + files.length + '…';
+        mergeStatus.className = 'status-line info';
+        var fd = new FormData();
+        fd.append('file', files[i]);
+        if (session) fd.append('session', session);
+        var r = await fetch('/merge/upload', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(await r.text());
+        var d = await r.json();
+        session = d.session;
       }
+      mergeStatus.textContent = 'Merging…';
+      var creator = document.getElementById('creator').value.trim();
+      var res = await fetch('/merge/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: session, creator: creator || undefined })
+      });
+      if (!res.ok) throw new Error(await res.text());
       var payload = await res.json();
       if (!payload.gpx) throw new Error('Empty response');
       triggerDownload(payload.gpx);
@@ -2556,6 +2580,162 @@ async fn merge_handler(mut multipart: Multipart) -> Response {
     }
 }
 
+async fn merge_upload_handler(
+    State(sessions): State<MergeSessions>,
+    mut multipart: Multipart,
+) -> Response {
+    let mut session_id: Option<String> = None;
+    let mut file_data: Option<(Option<String>, Vec<u8>)> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "session" => {
+                if let Ok(text) = field.text().await {
+                    let trimmed = text.trim().to_string();
+                    if !trimmed.is_empty() {
+                        session_id = Some(trimmed);
+                    }
+                }
+            }
+            "file" => {
+                let filename = field.file_name().map(String::from);
+                if let Ok(data) = field.bytes().await
+                    && !data.is_empty()
+                {
+                    const MAX_FILE: usize = 100 * 1024 * 1024;
+                    if data.len() > MAX_FILE {
+                        let label = filename.as_deref().unwrap_or("(unnamed)");
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            format!("File '{}' is too large ({:.1} MB, max 100 MB).",
+                                    label, data.len() as f64 / (1024.0 * 1024.0)),
+                        )
+                            .into_response();
+                    }
+                    file_data = Some((filename, data.to_vec()));
+                }
+            }
+            _ => {
+                let _ = field.bytes().await;
+            }
+        }
+    }
+
+    let (filename, data) = match file_data {
+        Some(f) => f,
+        None => return (StatusCode::BAD_REQUEST, "No file provided.".to_string()).into_response(),
+    };
+
+    let mut map = sessions.lock().await;
+
+    // Purge sessions older than 10 minutes
+    map.retain(|_, s| s.created.elapsed().as_secs() < 600);
+
+    let sid = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session = map.entry(sid.clone()).or_insert_with(|| MergeSession {
+        files: Vec::new(),
+        created: Instant::now(),
+    });
+
+    if session.files.len() >= 5 {
+        return (StatusCode::BAD_REQUEST, "Maximum 5 files per merge session.".to_string())
+            .into_response();
+    }
+
+    session.files.push((filename, data));
+    let count = session.files.len();
+    drop(map);
+
+    Json(json!({ "session": sid, "count": count })).into_response()
+}
+
+async fn merge_run_handler(
+    State(sessions): State<MergeSessions>,
+    Json(body): Json<Value>,
+) -> Response {
+    let sid = match body.get("session").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return (StatusCode::BAD_REQUEST, "Missing session id.".to_string()).into_response(),
+    };
+    let creator = body
+        .get("creator")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let files = {
+        let mut map = sessions.lock().await;
+        match map.remove(&sid) {
+            Some(s) => s.files,
+            None => {
+                return (StatusCode::BAD_REQUEST, "Unknown or expired session.".to_string())
+                    .into_response()
+            }
+        }
+    };
+
+    if !(2..=5).contains(&files.len()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Expected 2 to 5 GPX files, got {}.", files.len()),
+        )
+            .into_response();
+    }
+
+    let creator_for_task = creator;
+    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Value, Value), String> {
+        let per_file: Vec<Value> = files
+            .iter()
+            .map(|(name, data)| {
+                let pts = parse_all_trkpts(data);
+                json!({
+                    "name": name.clone().unwrap_or_else(|| "(unnamed)".to_string()),
+                    "stats": stats_from_points(&pts),
+                })
+            })
+            .collect();
+        let raw_files: Vec<Vec<u8>> = files.into_iter().map(|(_, d)| d).collect();
+        let merged = merge_gpx_preserving_extensions(raw_files, creator_for_task)?;
+        let merged_pts = parse_all_trkpts(&merged);
+        let stats = stats_from_points(&merged_pts);
+        Ok((merged, stats, Value::Array(per_file)))
+    })
+    .await;
+
+    match result {
+        Ok(Ok((bytes, stats, per_file))) => {
+            let gpx_str = match std::str::from_utf8(&bytes) {
+                Ok(s) => s.to_string(),
+                Err(_) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "merged GPX contained non-UTF-8 bytes".to_string(),
+                    )
+                        .into_response();
+                }
+            };
+            let payload = json!({
+                "gpx": gpx_str,
+                "stats": stats,
+                "per_file": per_file,
+            });
+            let body = serde_json::to_vec(&payload).expect("valid json");
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .expect("valid response")
+        }
+        Ok(Err(msg)) => (StatusCode::BAD_REQUEST, msg).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task failed: {e}"),
+        )
+            .into_response(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -2649,12 +2829,17 @@ async fn main() {
         },
     );
 
+    // --- Merge sessions ---
+    let merge_sessions: MergeSessions = Arc::new(Mutex::new(HashMap::new()));
+
     // --- Build unified app ---
     let app = Router::new()
         // Original gpx_to_graph routes
         .route("/", get(form_page))
         .route("/generate", post(generate_handler))
         .route("/merge", post(merge_handler))
+        .route("/merge/upload", post(merge_upload_handler))
+        .route("/merge/run", post(merge_run_handler))
         .route("/share/{id}", get(share_page))
         .route(
             "/share/{id}/{file}",
@@ -2663,6 +2848,7 @@ async fn main() {
         .route("/static/recents.css", get(static_recents_css))
         .route("/static/recents.js", get(static_recents_js))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
+        .with_state(merge_sessions)
         // Nested service routers
         .nest("/meteo", gpx_to_graph::meteo::router(meteo_cache))
         .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))

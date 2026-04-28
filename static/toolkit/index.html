@@ -674,32 +674,45 @@ $('#simplifyBtn').addEventListener('click', function() {
 
 // ── Merge action ──
 
-$('#mergeForm').addEventListener('submit', function(e) {
+$('#mergeForm').addEventListener('submit', async function(e) {
   e.preventDefault();
   var files = $('#mergeFiles').files;
   var status = $('#mergeStatus');
+  var creator = $('#mergeCreator').value.trim();
   if (files.length < 2 || files.length > 5) {
     status.textContent = 'Select between 2 and 5 GPX files.';
     status.className = 'status';
     return;
   }
-  status.textContent = 'Merging…';
-  status.className = 'status info';
-  fetch('/merge', { method: 'POST', body: new FormData(this) })
-    .then(function(res) {
-      if (!res.ok) return res.text().then(function(t) { throw new Error(t); });
-      return res.json();
-    })
-    .then(function(payload) {
-      if (!payload.gpx) throw new Error('Empty response');
-      downloadGpx(payload.gpx, 'merged.gpx');
-      status.textContent = 'Merged successfully — merged.gpx downloaded.';
-      status.className = 'status ok';
-    })
-    .catch(function(err) {
-      status.textContent = 'Error: ' + err.message;
-      status.className = 'status';
+  try {
+    var session = null;
+    for (var i = 0; i < files.length; i++) {
+      status.textContent = 'Uploading file ' + (i + 1) + ' of ' + files.length + '…';
+      status.className = 'status info';
+      var fd = new FormData();
+      fd.append('file', files[i]);
+      if (session) fd.append('session', session);
+      var res = await fetch('/merge/upload', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      var data = await res.json();
+      session = data.session;
+    }
+    status.textContent = 'Merging…';
+    var res = await fetch('/merge/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: session, creator: creator || undefined })
     });
+    if (!res.ok) throw new Error(await res.text());
+    var payload = await res.json();
+    if (!payload.gpx) throw new Error('Empty response');
+    downloadGpx(payload.gpx, 'merged.gpx');
+    status.textContent = 'Merged successfully — merged.gpx downloaded.';
+    status.className = 'status ok';
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    status.className = 'status';
+  }
 });
 </script>
 </body>
