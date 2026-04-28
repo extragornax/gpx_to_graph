@@ -220,6 +220,12 @@
         <label><span class="num">&#x2461;</span> Strip data</label>
         <div id="stripOptions" class="strip-options"></div>
       </div>
+      <div class="actions">
+        <button type="button" id="simplifyApplyBtn">
+          <span class="btn-arrow">&#x25B6;</span>
+          <span class="btn-label">Apply</span>
+        </button>
+      </div>
       <div id="simplifyMapWrap" class="simplify-map-wrap" hidden>
         <div id="simplifyMap" class="simplify-map"></div>
         <div class="map-legend">
@@ -659,6 +665,7 @@ function handleFile(file) {
 
     syncProfileFile();
     buildStripOptions();
+    autoFitTolerance();
     updateSimplifyPreview();
   };
   reader.readAsText(file);
@@ -772,9 +779,6 @@ function buildStripOptions() {
   allDiv.className = 'strip-check strip-check-all';
   allDiv.innerHTML = '<input type="checkbox" id="strip_extensions" data-strip-tag="extensions"> All extensions';
   container.appendChild(allDiv);
-  container.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
-    cb.addEventListener('change', updateSimplifyPreview);
-  });
 }
 
 function getStripSet() {
@@ -789,6 +793,31 @@ function formatBytes(b) {
   if (b < 1024) return b + ' B';
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
   return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+var TARGET_SIZE = 24.9 * 1024 * 1024;
+
+function autoFitTolerance() {
+  if (!currentText) return;
+  var origSize = new Blob([currentText]).size;
+  if (origSize <= TARGET_SIZE) {
+    $('#simplifyTolerance').value = 0;
+    return;
+  }
+  var lo = 0, hi = 100, best = 100;
+  while (lo <= hi) {
+    var mid = Math.floor((lo + hi) / 2);
+    var tol = sliderToTolerance(mid);
+    var xml = simplifyGpx(currentText, tol, new Set()).xml;
+    var size = new Blob([xml]).size;
+    if (size <= TARGET_SIZE) {
+      best = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  $('#simplifyTolerance').value = best;
 }
 
 function updateSimplifyPreview() {
@@ -845,7 +874,13 @@ function renderSimplifyMap(simplifiedCoords) {
   simplifyMap.fitBounds(simplifyOriginalLayer.getBounds(), { padding: [30, 30] });
 }
 
-$('#simplifyTolerance').addEventListener('input', updateSimplifyPreview);
+$('#simplifyTolerance').addEventListener('input', function() {
+  var val = parseInt(this.value, 10);
+  var tol = sliderToTolerance(val);
+  $('#simplifyInfo').textContent = val === 0 ? 'No simplification' : 'Tolerance: ' + tol.toFixed(6);
+});
+
+$('#simplifyApplyBtn').addEventListener('click', updateSimplifyPreview);
 
 $('#simplifyBtn').addEventListener('click', function() {
   if (!lastSimplifyResult) return;
