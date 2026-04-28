@@ -208,7 +208,7 @@
       <p>Upload a GPX file above to reduce the number of track points.</p>
     </div>
     <div id="simplifyContent" hidden>
-      <p class="tool-desc">Uses the Douglas-Peucker algorithm to reduce track points while preserving the shape of the route.</p>
+      <p class="tool-desc">Reduce file size by simplifying the track and stripping unnecessary data.</p>
       <div class="field">
         <label for="simplifyTolerance"><span class="num">&#x2460;</span> Tolerance</label>
         <div class="slider-row">
@@ -216,10 +216,26 @@
           <span id="simplifyInfo" class="slider-info">&mdash;</span>
         </div>
       </div>
+      <div class="field">
+        <label><span class="num">&#x2461;</span> Strip data</label>
+        <div id="stripOptions" class="strip-options"></div>
+      </div>
+      <div id="simplifyMapWrap" class="simplify-map-wrap" hidden>
+        <div id="simplifyMap" class="simplify-map"></div>
+        <div class="map-legend">
+          <span class="legend-item"><span class="legend-line legend-original"></span> Original</span>
+          <span class="legend-item"><span class="legend-line legend-simplified"></span> Simplified</span>
+        </div>
+      </div>
+      <div id="simplifyStats" class="simplify-stats" hidden>
+        <div class="stat-row"><span class="stat-label">Points</span><span id="statPoints" class="stat-value"></span></div>
+        <div class="stat-row"><span class="stat-label">File size</span><span id="statSize" class="stat-value"></span></div>
+        <div id="statExtRows"></div>
+      </div>
       <div class="actions">
-        <button type="button" id="simplifyBtn">
+        <button type="button" id="simplifyBtn" disabled>
           <span class="btn-arrow">&#x25C7;</span>
-          <span class="btn-label">Simplify &amp; download</span>
+          <span class="btn-label">Download simplified GPX</span>
         </button>
       </div>
     </div>
@@ -505,10 +521,11 @@ function douglasPeucker(coords, tolerance) {
   return keep;
 }
 
-function simplifyGpx(text, tolerance) {
+function simplifyGpx(text, tolerance, stripSet) {
   var doc = new DOMParser().parseFromString(text, 'text/xml');
   var segs = doc.querySelectorAll('trkseg');
   var totalBefore = 0, totalAfter = 0;
+  var keptCoords = [];
   for (var s = 0; s < segs.length; s++) {
     var pts = [];
     var children = segs[s].querySelectorAll('trkpt');
@@ -522,8 +539,26 @@ function simplifyGpx(text, tolerance) {
       if (!keep.has(j)) pts[j].parentNode.removeChild(pts[j]);
     }
     totalAfter += keep.size;
+    keep.forEach(function(idx) { keptCoords.push(coords[idx]); });
   }
-  return { xml: new XMLSerializer().serializeToString(doc), before: totalBefore, after: totalAfter };
+  if (stripSet && stripSet.size > 0) {
+    var remaining = doc.querySelectorAll('trkpt');
+    for (var i = 0; i < remaining.length; i++) {
+      var pt = remaining[i];
+      if (stripSet.has('time')) { var t = pt.querySelector('time'); if (t) pt.removeChild(t); }
+      if (stripSet.has('ele')) { var e = pt.querySelector('ele'); if (e) pt.removeChild(e); }
+      if (stripSet.has('extensions')) {
+        var ext = pt.querySelector('extensions'); if (ext) pt.removeChild(ext);
+      } else {
+        stripSet.forEach(function(tag) {
+          if (tag === 'time' || tag === 'ele' || tag === 'extensions') return;
+          var els = pt.querySelectorAll(tag);
+          for (var k = 0; k < els.length; k++) els[k].parentNode.removeChild(els[k]);
+        });
+      }
+    }
+  }
+  return { xml: new XMLSerializer().serializeToString(doc), before: totalBefore, after: totalAfter, coords: keptCoords };
 }
 
 function sliderToTolerance(val) {
@@ -554,6 +589,7 @@ function showPanel(name) {
   $$('.tool-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.tool === name); });
   $$('.tool-panel').forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
   if (name === 'viewer' && viewerMap) setTimeout(function() { viewerMap.invalidateSize(); }, 50);
+  if (name === 'simplify' && simplifyMap) setTimeout(function() { simplifyMap.invalidateSize(); }, 50);
 }
 
 $$('.tool-tab').forEach(function(tab) {
@@ -596,6 +632,7 @@ function handleFile(file) {
     $('#simplifyContent').hidden = false;
 
     syncProfileFile();
+    buildStripOptions();
     updateSimplifyPreview();
   };
   reader.readAsText(file);
@@ -620,6 +657,11 @@ function clearFile() {
   $('#reverseContent').hidden = true;
   $('#simplifyEmpty').hidden = false;
   $('#simplifyContent').hidden = true;
+  lastSimplifyResult = null;
+  if (simplifyMap) { simplifyMap.remove(); simplifyMap = null; }
+  $('#simplifyMapWrap').hidden = true;
+  $('#simplifyStats').hidden = true;
+  $('#simplifyBtn').disabled = true;
   if (viewerMap) { viewerMap.remove(); viewerMap = null; }
   $('#viewerChart').innerHTML = '';
   $('#viewerStats').innerHTML = '';
@@ -654,22 +696,135 @@ $('#reverseBtn').addEventListener('click', function() {
 
 // ── Simplify action ──
 
+var simplifyMap = null;
+var simplifyOriginalLayer = null;
+var simplifySimplifiedLayer = null;
+var lastSimplifyResult = null;
+
+function detectExtensions() {
+  if (!currentText) return [];
+  var doc = new DOMParser().parseFromString(currentText, 'text/xml');
+  var pts = doc.querySelectorAll('trkpt');
+  var found = {};
+  for (var i = 0; i < Math.min(pts.length, 200); i++) {
+    var ext = pts[i].querySelector('extensions');
+    if (ext) {
+      for (var c = 0; c < ext.children.length; c++) {
+        var inner = ext.children[c];
+        for (var d = 0; d < inner.children.length; d++) {
+          var tag = inner.children[d].localName;
+          if (!found[tag]) found[tag] = 0;
+          found[tag] += new XMLSerializer().serializeToString(inner.children[d]).length;
+        }
+      }
+    }
+    var timeEl = pts[i].querySelector('time');
+    if (timeEl && !found['time']) found['time'] = 0;
+    if (timeEl) found['time'] += new XMLSerializer().serializeToString(timeEl).length;
+  }
+  return Object.keys(found).map(function(k) { return { tag: k, sampleBytes: found[k] }; });
+}
+
+function buildStripOptions() {
+  var container = $('#stripOptions');
+  container.innerHTML = '';
+  var exts = detectExtensions();
+  if (exts.length === 0) {
+    container.innerHTML = '<span class="hint">No strippable data detected.</span>';
+    return;
+  }
+  var labels = { atemp: 'Temperature', cad: 'Cadence', hr: 'Heart rate', power: 'Power', time: 'Timestamps' };
+  exts.forEach(function(e) {
+    var label = labels[e.tag] || e.tag;
+    var id = 'strip_' + e.tag;
+    var div = document.createElement('label');
+    div.className = 'strip-check';
+    div.innerHTML = '<input type="checkbox" id="' + id + '" data-strip-tag="' + e.tag + '"> ' + label;
+    container.appendChild(div);
+  });
+  var allDiv = document.createElement('label');
+  allDiv.className = 'strip-check strip-check-all';
+  allDiv.innerHTML = '<input type="checkbox" id="strip_extensions" data-strip-tag="extensions"> All extensions';
+  container.appendChild(allDiv);
+  container.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+    cb.addEventListener('change', updateSimplifyPreview);
+  });
+}
+
+function getStripSet() {
+  var s = new Set();
+  $$('#stripOptions input[type=checkbox]:checked').forEach(function(cb) {
+    s.add(cb.dataset.stripTag);
+  });
+  return s;
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function updateSimplifyPreview() {
   if (!currentData) { $('#simplifyInfo').textContent = '—'; return; }
   var tol = sliderToTolerance(parseInt($('#simplifyTolerance').value, 10));
-  var result = simplifyGpx(currentText, tol);
+  var stripSet = getStripSet();
+  var result = simplifyGpx(currentText, tol, stripSet);
+  lastSimplifyResult = result;
   var pct = ((1 - result.after / result.before) * 100).toFixed(0);
   $('#simplifyInfo').textContent = result.after + ' / ' + result.before + ' pts (−' + pct + '%)';
+
+  var origSize = new Blob([currentText]).size;
+  var newSize = new Blob([result.xml]).size;
+  var savedPct = ((1 - newSize / origSize) * 100).toFixed(0);
+  $('#statPoints').textContent = result.before + ' → ' + result.after + ' (−' + pct + '%)';
+  $('#statSize').textContent = formatBytes(origSize) + ' → ' + formatBytes(newSize) + ' (−' + savedPct + '%)';
+  $('#simplifyStats').hidden = false;
+  $('#simplifyBtn').disabled = false;
+
+  // Extension size breakdown
+  var extRows = $('#statExtRows');
+  extRows.innerHTML = '';
+  if (stripSet.size > 0) {
+    var baseResult = simplifyGpx(currentText, tol, new Set());
+    var baseSize = new Blob([baseResult.xml]).size;
+    var saved = baseSize - newSize;
+    var row = document.createElement('div');
+    row.className = 'stat-row';
+    row.innerHTML = '<span class="stat-label">Stripped data</span><span class="stat-value">−' + formatBytes(saved) + '</span>';
+    extRows.appendChild(row);
+  }
+
+  renderSimplifyMap(result.coords);
+}
+
+function renderSimplifyMap(simplifiedCoords) {
+  var wrap = $('#simplifyMapWrap');
+  if (!currentData || currentData.points.length < 2) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+
+  if (!simplifyMap) {
+    simplifyMap = L.map('simplifyMap', { scrollWheelZoom: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap', maxZoom: 18
+    }).addTo(simplifyMap);
+  }
+
+  if (simplifyOriginalLayer) simplifyMap.removeLayer(simplifyOriginalLayer);
+  if (simplifySimplifiedLayer) simplifyMap.removeLayer(simplifySimplifiedLayer);
+
+  var origLL = currentData.points.map(function(p) { return [p.lat, p.lon]; });
+  simplifyOriginalLayer = L.polyline(origLL, { color: '#b8202a', weight: 2, opacity: 0.35 }).addTo(simplifyMap);
+  simplifySimplifiedLayer = L.polyline(simplifiedCoords, { color: '#1b4a8a', weight: 3, opacity: 0.9 }).addTo(simplifyMap);
+  simplifyMap.fitBounds(simplifyOriginalLayer.getBounds(), { padding: [30, 30] });
 }
 
 $('#simplifyTolerance').addEventListener('input', updateSimplifyPreview);
 
 $('#simplifyBtn').addEventListener('click', function() {
-  if (!currentText) return;
-  var tol = sliderToTolerance(parseInt($('#simplifyTolerance').value, 10));
-  var result = simplifyGpx(currentText, tol);
+  if (!lastSimplifyResult) return;
   var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
-  downloadGpx(result.xml, name + '_simplified.gpx');
+  downloadGpx(lastSimplifyResult.xml, name + '_simplified.gpx');
 });
 
 // ── Merge action ──
