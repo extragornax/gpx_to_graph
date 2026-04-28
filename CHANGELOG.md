@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-04-28
+
+### Changed
+- Raise per-file GPX upload limit to 100 MB (was ~50 MB shared across all files)
+- Reject individual files over 100 MB with a clear error message (profile and merge endpoints)
+
 ## 2026-04-27
 
 ### Added

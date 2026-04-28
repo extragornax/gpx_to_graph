@@ -1239,6 +1239,15 @@ async fn generate_handler(mut multipart: Multipart) -> Response {
                 if let Ok(data) = field.bytes().await
                     && !data.is_empty()
                 {
+                    const MAX_FILE: usize = 100 * 1024 * 1024;
+                    if data.len() > MAX_FILE {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            format!("GPX file is too large ({:.1} MB, max 100 MB).",
+                                    data.len() as f64 / (1024.0 * 1024.0)),
+                        )
+                            .into_response();
+                    }
                     gpx_bytes = Some(data.to_vec());
                 }
             }
@@ -2459,6 +2468,16 @@ async fn merge_handler(mut multipart: Multipart) -> Response {
                 if let Ok(data) = field.bytes().await
                     && !data.is_empty()
                 {
+                    const MAX_FILE: usize = 100 * 1024 * 1024;
+                    if data.len() > MAX_FILE {
+                        let label = filename.as_deref().unwrap_or("(unnamed)");
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            format!("File '{}' is too large ({:.1} MB, max 100 MB).",
+                                    label, data.len() as f64 / (1024.0 * 1024.0)),
+                        )
+                            .into_response();
+                    }
                     files.push((filename, data.to_vec()));
                 }
             }
@@ -2643,7 +2662,7 @@ async fn main() {
         )
         .route("/static/recents.css", get(static_recents_css))
         .route("/static/recents.js", get(static_recents_js))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         // Nested service routers
         .nest("/meteo", gpx_to_graph::meteo::router(meteo_cache))
         .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))
