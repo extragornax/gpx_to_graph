@@ -1576,6 +1576,225 @@ fn trackpoints_to_gpx_bytes(pts: &[TrackPoint]) -> Vec<u8> {
     xml.into_bytes()
 }
 
+// ---------------------------------------------------------------------------
+// Douglas-Peucker simplification
+// ---------------------------------------------------------------------------
+
+fn perp_dist(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let len2 = dx * dx + dy * dy;
+    if len2 == 0.0 {
+        return ((p.0 - a.0).powi(2) + (p.1 - a.1).powi(2)).sqrt();
+    }
+    let t = ((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2;
+    let t = t.clamp(0.0, 1.0);
+    let px = a.0 + t * dx;
+    let py = a.1 + t * dy;
+    ((p.0 - px).powi(2) + (p.1 - py).powi(2)).sqrt()
+}
+
+fn douglas_peucker(coords: &[(f64, f64)], tolerance: f64) -> Vec<bool> {
+    let n = coords.len();
+    let mut keep = vec![false; n];
+    if n <= 2 {
+        for k in &mut keep {
+            *k = true;
+        }
+        return keep;
+    }
+    keep[0] = true;
+    keep[n - 1] = true;
+    let mut stack = vec![(0usize, n - 1)];
+    while let Some((start, end)) = stack.pop() {
+        let mut max_dist = 0.0_f64;
+        let mut max_idx = start;
+        for i in (start + 1)..end {
+            let d = perp_dist(coords[i], coords[start], coords[end]);
+            if d > max_dist {
+                max_dist = d;
+                max_idx = i;
+            }
+        }
+        if max_dist > tolerance {
+            keep[max_idx] = true;
+            stack.push((start, max_idx));
+            stack.push((max_idx, end));
+        }
+    }
+    keep
+}
+
+fn dp_count(coords: &[(f64, f64)], tolerance: f64) -> usize {
+    let n = coords.len();
+    if n <= 2 {
+        return n;
+    }
+    let mut count = 2usize;
+    let mut stack = vec![(0usize, n - 1)];
+    while let Some((start, end)) = stack.pop() {
+        let mut max_dist = 0.0_f64;
+        let mut max_idx = start;
+        for i in (start + 1)..end {
+            let d = perp_dist(coords[i], coords[start], coords[end]);
+            if d > max_dist {
+                max_dist = d;
+                max_idx = i;
+            }
+        }
+        if max_dist > tolerance {
+            count += 1;
+            stack.push((start, max_idx));
+            stack.push((max_idx, end));
+        }
+    }
+    count
+}
+
+fn find_tolerance_for_pct(coords: &[(f64, f64)], target_pct: u32) -> f64 {
+    if target_pct == 0 || coords.len() <= 2 {
+        return 0.0;
+    }
+    let total = coords.len();
+    let target_keep = (total as f64 * (1.0 - target_pct as f64 / 100.0))
+        .round()
+        .max(2.0) as usize;
+    let mut lo = 0.0_f64;
+    let mut hi = 1.0_f64;
+    for _ in 0..50 {
+        let mid = (lo + hi) / 2.0;
+        let kept = dp_count(coords, mid);
+        if kept == target_keep {
+            return mid;
+        }
+        if kept < target_keep {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+        if (hi - lo) / (hi + 1e-15) < 1e-6 {
+            break;
+        }
+    }
+    lo
+}
+
+fn simplify_trackpoints(
+    pts: &[TrackPoint],
+    target_pct: u32,
+    strip: &std::collections::HashSet<String>,
+) -> (Vec<TrackPoint>, usize, usize) {
+    let coords: Vec<(f64, f64)> = pts.iter().map(|p| (p.lat, p.lon)).collect();
+    let before = coords.len();
+    let tol = find_tolerance_for_pct(&coords, target_pct);
+    let keep = if tol == 0.0 {
+        vec![true; before]
+    } else {
+        douglas_peucker(&coords, tol)
+    };
+    let out: Vec<TrackPoint> = pts
+        .iter()
+        .zip(keep.iter())
+        .filter(|&(_, &k)| k)
+        .map(|(p, _)| {
+            let mut pt = p.clone();
+            if strip.contains("time") {
+                pt.time = None;
+            }
+            if strip.contains("ele") {
+                pt.ele = None;
+            }
+            if strip.contains("extensions") {
+                pt.hr = None;
+                pt.cad = None;
+                pt.power = None;
+                pt.temp = None;
+            } else {
+                if strip.contains("hr") {
+                    pt.hr = None;
+                }
+                if strip.contains("cad") {
+                    pt.cad = None;
+                }
+                if strip.contains("power") {
+                    pt.power = None;
+                }
+                if strip.contains("atemp") {
+                    pt.temp = None;
+                }
+            }
+            pt
+        })
+        .collect();
+    let after = out.len();
+    (out, before, after)
+}
+
+async fn simplify_handler(mut multipart: Multipart) -> Response {
+    let mut file_data: Option<(Option<String>, Vec<u8>)> = None;
+    let mut pct: u32 = 0;
+    let mut strip: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "file" => {
+                let filename = field.file_name().map(String::from);
+                if let Ok(data) = field.bytes().await {
+                    file_data = Some((filename, data.to_vec()));
+                }
+            }
+            "pct" => {
+                if let Ok(text) = field.text().await {
+                    pct = text.trim().parse().unwrap_or(0).min(99);
+                }
+            }
+            "strip" => {
+                if let Ok(text) = field.text().await {
+                    for tag in text.split(',') {
+                        let t = tag.trim();
+                        if !t.is_empty() {
+                            strip.insert(t.to_string());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some((filename, data)) = file_data else {
+        return (StatusCode::BAD_REQUEST, "No file uploaded").into_response();
+    };
+
+    let pts = if is_fit_file(filename.as_deref(), &data) {
+        match parse_fit_trkpts(&data) {
+            Ok(p) => p,
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        }
+    } else {
+        parse_all_trkpts(&data)
+    };
+
+    if pts.is_empty() {
+        return (StatusCode::BAD_REQUEST, "No track points found").into_response();
+    }
+
+    let (simplified, before, after) = simplify_trackpoints(&pts, pct, &strip);
+    let gpx_bytes = trackpoints_to_gpx_bytes(&simplified);
+    let coords: Vec<[f64; 2]> = simplified.iter().map(|p| [p.lat, p.lon]).collect();
+
+    let resp = serde_json::json!({
+        "xml": String::from_utf8_lossy(&gpx_bytes),
+        "before": before,
+        "after": after,
+        "coords": coords,
+        "size": gpx_bytes.len(),
+    });
+
+    Json(resp).into_response()
+}
+
 fn is_fit_file(filename: Option<&str>, data: &[u8]) -> bool {
     if let Some(name) = filename {
         if name.to_ascii_lowercase().ends_with(".fit") {
@@ -2556,6 +2775,7 @@ async fn main() {
         )
         .route("/static/recents.css", get(static_recents_css))
         .route("/static/recents.js", get(static_recents_js))
+        .route("/toolkit/simplify", post(simplify_handler))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(merge_sessions)
         // Nested service routers

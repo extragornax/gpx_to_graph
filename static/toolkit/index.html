@@ -48,8 +48,8 @@
         <path d="M20 4v22M12 18l8 8 8-8"/>
         <path d="M4 28v4a4 4 0 004 4h24a4 4 0 004-4v-4"/>
       </svg>
-      <p class="drop-text">Drop a <tt>.gpx</tt> file here, or <span class="drop-link">browse</span></p>
-      <input type="file" id="gpxFile" accept=".gpx,application/gpx+xml,text/xml">
+      <p class="drop-text">Drop a <tt>.gpx</tt> or <tt>.fit</tt> file here, or <span class="drop-link">browse</span></p>
+      <input type="file" id="gpxFile" accept=".gpx,.fit,application/gpx+xml,text/xml">
     </div>
     <div class="file-bar" id="fileBar" hidden>
       <span class="file-name" id="fileName"></span>
@@ -208,7 +208,7 @@
   <!-- SIMPLIFY -->
   <section class="tool-panel" id="panel-simplify">
     <div class="panel-empty" id="simplifyEmpty">
-      <p>Upload a GPX file above to reduce the number of track points.</p>
+      <p>Upload a GPX or FIT file above to reduce the number of track points.</p>
     </div>
     <div id="simplifyContent" hidden>
       <p class="tool-desc">Reduce file size by simplifying the track and stripping unnecessary data.</p>
@@ -578,124 +578,6 @@ function flattenGpx(text) {
   return { xml: new XMLSerializer().serializeToString(doc), tracks: tracks.length, segs: segCount, pts: allPts.length };
 }
 
-// ── Simplify (Douglas-Peucker) ──
-
-function perpDist(p, a, b) {
-  var dx = b[0] - a[0], dy = b[1] - a[1];
-  var len2 = dx * dx + dy * dy;
-  if (len2 === 0) return Math.sqrt((p[0]-a[0])*(p[0]-a[0]) + (p[1]-a[1])*(p[1]-a[1]));
-  var t = Math.max(0, Math.min(1, ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / len2));
-  var px = a[0] + t * dx, py = a[1] + t * dy;
-  return Math.sqrt((p[0]-px)*(p[0]-px) + (p[1]-py)*(p[1]-py));
-}
-
-function douglasPeucker(coords, tolerance) {
-  var n = coords.length;
-  if (n <= 2) {
-    var s = new Set();
-    for (var i = 0; i < n; i++) s.add(i);
-    return s;
-  }
-  var keep = new Set([0, n - 1]);
-  var stack = [[0, n - 1]];
-  while (stack.length) {
-    var pair = stack.pop(), start = pair[0], end = pair[1];
-    var maxDist = 0, maxIdx = start;
-    for (var i = start + 1; i < end; i++) {
-      var d = perpDist(coords[i], coords[start], coords[end]);
-      if (d > maxDist) { maxDist = d; maxIdx = i; }
-    }
-    if (maxDist > tolerance) {
-      keep.add(maxIdx);
-      stack.push([start, maxIdx]);
-      stack.push([maxIdx, end]);
-    }
-  }
-  return keep;
-}
-
-function simplifyGpx(text, tolerance, stripSet) {
-  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
-  var segs = doc.querySelectorAll('trkseg');
-  var totalBefore = 0, totalAfter = 0;
-  var keptCoords = [];
-  for (var s = 0; s < segs.length; s++) {
-    var pts = [];
-    var children = segs[s].querySelectorAll('trkpt');
-    for (var j = 0; j < children.length; j++) pts.push(children[j]);
-    totalBefore += pts.length;
-    var coords = pts.map(function(pt) {
-      return [parseFloat(pt.getAttribute('lat')), parseFloat(pt.getAttribute('lon'))];
-    });
-    var keep = douglasPeucker(coords, tolerance);
-    for (var j = pts.length - 1; j >= 0; j--) {
-      if (!keep.has(j)) pts[j].parentNode.removeChild(pts[j]);
-    }
-    totalAfter += keep.size;
-    keep.forEach(function(idx) { keptCoords.push(coords[idx]); });
-  }
-  if (stripSet && stripSet.size > 0) {
-    var wrapperNames = { power: 'PowerExtension' };
-    var remaining = doc.querySelectorAll('trkpt');
-    for (var i = 0; i < remaining.length; i++) {
-      var pt = remaining[i];
-      if (stripSet.has('time')) { var t = pt.querySelector('time'); if (t) pt.removeChild(t); }
-      if (stripSet.has('ele')) { var e = pt.querySelector('ele'); if (e) pt.removeChild(e); }
-      if (stripSet.has('extensions')) {
-        var ext = pt.querySelector('extensions'); if (ext) pt.removeChild(ext);
-      } else {
-        var ext = pt.querySelector('extensions');
-        if (ext) {
-          stripSet.forEach(function(tag) {
-            if (tag === 'time' || tag === 'ele' || tag === 'extensions') return;
-            var wrapper = wrapperNames[tag];
-            if (wrapper) {
-              for (var c = ext.children.length - 1; c >= 0; c--) {
-                if (ext.children[c].localName === wrapper) ext.removeChild(ext.children[c]);
-              }
-            } else {
-              var walk = ext.querySelectorAll('*');
-              for (var k = walk.length - 1; k >= 0; k--) {
-                if (walk[k].localName === tag) walk[k].parentNode.removeChild(walk[k]);
-              }
-            }
-          });
-          for (var c = ext.children.length - 1; c >= 0; c--) {
-            if (ext.children[c].children.length === 0 && !ext.children[c].textContent.trim()) ext.removeChild(ext.children[c]);
-          }
-          if (ext.children.length === 0) pt.removeChild(ext);
-        }
-      }
-    }
-  }
-  return { xml: new XMLSerializer().serializeToString(doc), before: totalBefore, after: totalAfter, coords: keptCoords };
-}
-
-function sliderToTolerance(val) {
-  return 0.000005 * Math.pow(400, val / 100);
-}
-
-function findToleranceForPct(text, targetPct) {
-  if (targetPct <= 0) return 0;
-  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
-  var totalPts = doc.querySelectorAll('trkpt').length;
-  var targetKeep = Math.max(2, Math.round(totalPts * (1 - targetPct / 100)));
-  var lo = 0, hi = 100, bestTol = 0;
-  for (var iter = 0; iter < 15; iter++) {
-    var mid = (lo + hi) / 2;
-    var tol = sliderToTolerance(mid);
-    var result = simplifyGpx(text, tol, new Set());
-    if (result.after <= targetKeep) {
-      hi = mid;
-    } else {
-      bestTol = tol;
-      lo = mid;
-    }
-    if (hi - lo < 0.1) break;
-  }
-  return sliderToTolerance(hi);
-}
-
 // ── Helpers ──
 
 function escapeHtml(s) {
@@ -735,6 +617,19 @@ function handleFile(file) {
   $('#fileName').textContent = file.name;
   $('#fileMeta').textContent = 'Reading…';
   $('#fileBar').hidden = false;
+
+  var isFit = /\.fit$/i.test(file.name);
+
+  if (isFit) {
+    currentText = null;
+    currentData = null;
+    $('#fileMeta').textContent = formatBytes(file.size) + ' · FIT file';
+    $('#simplifyEmpty').hidden = true;
+    $('#simplifyContent').hidden = false;
+    $('#simplifyCurrentPts').textContent = formatBytes(file.size);
+    $('#stripOptions').innerHTML = '<span class="hint">Strip options not available for FIT files.</span>';
+    return;
+  }
 
   var reader = new FileReader();
   reader.onload = function() {
@@ -965,39 +860,50 @@ function formatBytes(b) {
   return (b / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function updateSimplifyPreview() {
-  if (!currentData) { $('#simplifyInfo').textContent = '—'; return; }
+async function updateSimplifyPreview() {
+  if (!currentFile) { $('#simplifyInfo').textContent = '—'; return; }
   var pctVal = parseInt($('#simplifyPct').value, 10);
-  var tol = findToleranceForPct(currentText, pctVal);
   var stripSet = getStripSet();
-  var result = simplifyGpx(currentText, tol, stripSet);
-  lastSimplifyResult = result;
-  var pct = ((1 - result.after / result.before) * 100).toFixed(0);
-  $('#simplifyInfo').textContent = result.after.toLocaleString() + ' / ' + result.before.toLocaleString() + ' pts (−' + pct + '%)';
+  var stripTags = Array.from(stripSet).join(',');
 
-  var origSize = new Blob([currentText]).size;
-  var newSize = new Blob([result.xml]).size;
-  var savedPct = ((1 - newSize / origSize) * 100).toFixed(0);
-  $('#statPoints').textContent = result.before.toLocaleString() + ' → ' + result.after.toLocaleString() + ' (−' + pct + '%)';
-  $('#statSize').textContent = formatBytes(origSize) + ' → ' + formatBytes(newSize) + ' (−' + savedPct + '%)';
-  $('#simplifyCurrentPts').textContent = 'Current: ' + result.before.toLocaleString() + ' points → After: ' + result.after.toLocaleString() + ' points (−' + pct + '%)';
-  $('#simplifyStats').hidden = false;
-  $('#simplifyBtn').disabled = false;
+  var applyBtn = $('#simplifyApplyBtn');
+  applyBtn.disabled = true;
+  applyBtn.querySelector('.btn-label').textContent = 'Processing…';
 
-  // Extension size breakdown
-  var extRows = $('#statExtRows');
-  extRows.innerHTML = '';
-  if (stripSet.size > 0) {
-    var baseResult = simplifyGpx(currentText, tol, new Set());
-    var baseSize = new Blob([baseResult.xml]).size;
-    var saved = baseSize - newSize;
-    var row = document.createElement('div');
-    row.className = 'stat-row';
-    row.innerHTML = '<span class="stat-label">Stripped data</span><span class="stat-value">−' + formatBytes(saved) + '</span>';
-    extRows.appendChild(row);
+  try {
+    var fd = new FormData();
+    fd.append('file', currentFile);
+    fd.append('pct', String(pctVal));
+    if (stripTags) fd.append('strip', stripTags);
+
+    var resp = await fetch('/toolkit/simplify', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      var errText = await resp.text();
+      $('#simplifyInfo').textContent = 'Error: ' + errText;
+      return;
+    }
+    var result = await resp.json();
+    lastSimplifyResult = result;
+    var pct = ((1 - result.after / result.before) * 100).toFixed(0);
+    $('#simplifyInfo').textContent = result.after.toLocaleString() + ' / ' + result.before.toLocaleString() + ' pts (−' + pct + '%)';
+
+    var origSize = currentFile.size;
+    var newSize = result.size;
+    var savedPct = ((1 - newSize / origSize) * 100).toFixed(0);
+    $('#statPoints').textContent = result.before.toLocaleString() + ' → ' + result.after.toLocaleString() + ' (−' + pct + '%)';
+    $('#statSize').textContent = formatBytes(origSize) + ' → ' + formatBytes(newSize) + ' (−' + savedPct + '%)';
+    $('#simplifyCurrentPts').textContent = 'Current: ' + result.before.toLocaleString() + ' points → After: ' + result.after.toLocaleString() + ' points (−' + pct + '%)';
+    $('#simplifyStats').hidden = false;
+    $('#simplifyBtn').disabled = false;
+    $('#statExtRows').innerHTML = '';
+
+    renderSimplifyMap(result.coords);
+  } catch (e) {
+    $('#simplifyInfo').textContent = 'Error: ' + e.message;
+  } finally {
+    applyBtn.disabled = false;
+    applyBtn.querySelector('.btn-label').textContent = 'Apply';
   }
-
-  renderSimplifyMap(result.coords);
 }
 
 function renderSimplifyMap(simplifiedCoords) {
@@ -1030,7 +936,7 @@ $('#simplifyApplyBtn').addEventListener('click', updateSimplifyPreview);
 
 $('#simplifyBtn').addEventListener('click', function() {
   if (!lastSimplifyResult) return;
-  var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
+  var name = currentFile ? currentFile.name.replace(/\.(gpx|fit)$/i, '') : 'track';
   downloadGpx(lastSimplifyResult.xml, name + '_simplified.gpx');
 });
 
