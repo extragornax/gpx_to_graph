@@ -1441,6 +1441,144 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// FIT → GPX conversion
+// ---------------------------------------------------------------------------
+
+fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
+    use fitparser::profile::MesgNum;
+    use fitparser::Value;
+    use std::fmt::Write;
+    use std::io::Cursor;
+
+    const SC_TO_DEG: f64 = 180.0 / 2_147_483_648.0;
+
+    let records =
+        fitparser::from_reader(&mut Cursor::new(data)).map_err(|e| format!("FIT parse: {e}"))?;
+
+    let mut xml = String::with_capacity(data.len() * 3);
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+        <gpx version=\"1.1\" creator=\"gpx_to_graph\"\n  \
+        xmlns=\"http://www.topografix.com/GPX/1/1\"\n  \
+        xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n  \
+        xmlns:gpxpx=\"http://www.garmin.com/xmlschemas/PowerExtension/v1\">\n\
+        <trk><trkseg>\n");
+
+    for rec in &records {
+        if rec.kind() != MesgNum::Record {
+            continue;
+        }
+
+        let mut lat: Option<f64> = None;
+        let mut lon: Option<f64> = None;
+        let mut ele: Option<f64> = None;
+        let mut time: Option<String> = None;
+        let mut hr: Option<u8> = None;
+        let mut cad: Option<u8> = None;
+        let mut power: Option<u16> = None;
+        let mut temp: Option<i8> = None;
+
+        for field in rec.fields() {
+            match field.name() {
+                "position_lat" => {
+                    if let Value::SInt32(v) = field.value() {
+                        lat = Some(*v as f64 * SC_TO_DEG);
+                    }
+                }
+                "position_long" => {
+                    if let Value::SInt32(v) = field.value() {
+                        lon = Some(*v as f64 * SC_TO_DEG);
+                    }
+                }
+                "enhanced_altitude" | "altitude" => {
+                    if ele.is_none() {
+                        ele = match field.value() {
+                            Value::Float64(v) => Some(*v),
+                            Value::Float32(v) => Some(*v as f64),
+                            Value::UInt16(v) => Some(*v as f64 / 5.0 - 500.0),
+                            _ => None,
+                        };
+                    }
+                }
+                "timestamp" => {
+                    if let Value::Timestamp(ts) = field.value() {
+                        time = Some(ts.to_utc().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                    }
+                }
+                "heart_rate" => {
+                    if let Value::UInt8(v) = field.value() {
+                        hr = Some(*v);
+                    }
+                }
+                "cadence" => {
+                    if let Value::UInt8(v) = field.value() {
+                        cad = Some(*v);
+                    }
+                }
+                "power" => {
+                    if let Value::UInt16(v) = field.value() {
+                        power = Some(*v);
+                    }
+                }
+                "temperature" => {
+                    if let Value::SInt8(v) = field.value() {
+                        temp = Some(*v);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let (Some(lat), Some(lon)) = (lat, lon) else {
+            continue;
+        };
+
+        let _ = write!(xml, "<trkpt lat=\"{lat:.7}\" lon=\"{lon:.7}\">");
+        if let Some(e) = ele {
+            let _ = write!(xml, "<ele>{e:.1}</ele>");
+        }
+        if let Some(t) = &time {
+            let _ = write!(xml, "<time>{t}</time>");
+        }
+
+        let has_ext = hr.is_some() || cad.is_some() || power.is_some() || temp.is_some();
+        if has_ext {
+            xml.push_str("<extensions>");
+            if hr.is_some() || cad.is_some() || temp.is_some() {
+                xml.push_str("<gpxtpx:TrackPointExtension>");
+                if let Some(v) = hr {
+                    let _ = write!(xml, "<gpxtpx:hr>{v}</gpxtpx:hr>");
+                }
+                if let Some(v) = cad {
+                    let _ = write!(xml, "<gpxtpx:cad>{v}</gpxtpx:cad>");
+                }
+                if let Some(v) = temp {
+                    let _ = write!(xml, "<gpxtpx:atemp>{v}</gpxtpx:atemp>");
+                }
+                xml.push_str("</gpxtpx:TrackPointExtension>");
+            }
+            if let Some(v) = power {
+                let _ = write!(xml, "<gpxpx:PowerExtension><gpxpx:PowerInWatts>{v}</gpxpx:PowerInWatts></gpxpx:PowerExtension>");
+            }
+            xml.push_str("</extensions>");
+        }
+
+        xml.push_str("</trkpt>\n");
+    }
+
+    xml.push_str("</trkseg></trk></gpx>\n");
+    Ok(xml.into_bytes())
+}
+
+fn is_fit_file(filename: Option<&str>, data: &[u8]) -> bool {
+    if let Some(name) = filename {
+        if name.to_ascii_lowercase().ends_with(".fit") {
+            return true;
+        }
+    }
+    data.len() >= 14 && &data[8..12] == b".FIT"
+}
+
+// ---------------------------------------------------------------------------
 // Byte-level GPX merge
 //
 // The `gpx` crate (0.10) drops <extensions> during parse (see its
@@ -2137,6 +2275,31 @@ async fn merge_upload_handler(
     let (filename, data) = match file_data {
         Some(f) => f,
         None => return (StatusCode::BAD_REQUEST, "No file provided.".to_string()).into_response(),
+    };
+
+    let (filename, data) = if is_fit_file(filename.as_deref(), &data) {
+        match fit_to_gpx(&data) {
+            Ok(gpx_bytes) => {
+                let gpx_name = filename.map(|n| {
+                    n.strip_suffix(".fit")
+                        .or_else(|| n.strip_suffix(".FIT"))
+                        .unwrap_or(&n)
+                        .to_string()
+                        + ".gpx"
+                });
+                (gpx_name, gpx_bytes)
+            }
+            Err(e) => {
+                let label = filename.as_deref().unwrap_or("(unnamed)");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to convert FIT file '{label}': {e}"),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        (filename, data)
     };
 
     let mut map = sessions.lock().await;

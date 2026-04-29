@@ -31,6 +31,7 @@ futures-util = { version = "0.3", optional = true }
 csv = { version = "1.3", optional = true }
 thiserror = { version = "2", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
+fitparser = { version = "0.7", optional = true }
 
 [features]
 default = []
@@ -40,6 +41,7 @@ server = [
     "dep:chrono", "dep:rusqlite", "dep:reqwest", "dep:bcrypt", "dep:rand",
     "dep:futures-util", "dep:csv", "dep:thiserror",
     "dep:sha2", "dep:hmac", "dep:uuid",
+    "dep:fitparser",
 ]
 
 [[bin]]
