@@ -30,7 +30,7 @@
     <div class="edition">
       <span>Outils GPX</span>
       <span class="dot">&#x2726;</span>
-      <span>Vue &middot; Profil &middot; Fusion &middot; Inversion</span>
+      <span>Vue &middot; Profil &middot; Fusion &middot; Inversion &middot; Aplatir</span>
     </div>
     <h1 class="title">toolkit<span class="slash">/</span><span class="title-sub">gpx</span></h1>
     <p class="tagline">
@@ -74,6 +74,9 @@
     </button>
     <button type="button" class="tool-tab" data-tool="simplify">
       <span class="tab-icon">&#x25C7;</span> Simplify
+    </button>
+    <button type="button" class="tool-tab" data-tool="flatten">
+      <span class="tab-icon">&#x29C9;</span> Flatten
     </button>
   </nav>
 
@@ -243,6 +246,28 @@
           <span class="btn-arrow">&#x25C7;</span>
           <span class="btn-label">Download simplified GPX</span>
         </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLATTEN -->
+  <section class="tool-panel" id="panel-flatten">
+    <div class="panel-empty" id="flattenEmpty">
+      <p>Upload a GPX file above to merge its sub-routes into a single continuous track.</p>
+    </div>
+    <div id="flattenContent" hidden>
+      <p class="tool-desc">Merges all track segments (and multiple tracks) into one continuous route. All metadata and extensions are preserved.</p>
+      <div id="flattenInfo" class="simplify-stats" hidden>
+        <div class="stat-row"><span class="stat-label">Tracks</span><span id="flattenTracks" class="stat-value"></span></div>
+        <div class="stat-row"><span class="stat-label">Segments</span><span id="flattenSegs" class="stat-value"></span></div>
+        <div class="stat-row"><span class="stat-label">Total points</span><span id="flattenPts" class="stat-value"></span></div>
+      </div>
+      <div class="actions">
+        <button type="button" id="flattenBtn">
+          <span class="btn-arrow">&#x29C9;</span>
+          <span class="btn-label">Flatten &amp; download</span>
+        </button>
+        <p id="flattenStatus" class="status"></p>
       </div>
     </div>
   </section>
@@ -516,6 +541,41 @@ function reverseGpx(text) {
   return new XMLSerializer().serializeToString(doc);
 }
 
+// ── Flatten (merge sub-routes) ──
+
+function flattenGpx(text) {
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
+  var tracks = doc.querySelectorAll('trk');
+  if (tracks.length === 0) return { xml: text, tracks: 0, segs: 0, pts: 0 };
+
+  var allPts = [];
+  var segCount = 0;
+  for (var t = 0; t < tracks.length; t++) {
+    var segs = tracks[t].querySelectorAll('trkseg');
+    segCount += segs.length;
+    for (var s = 0; s < segs.length; s++) {
+      var pts = segs[s].querySelectorAll('trkpt');
+      for (var p = 0; p < pts.length; p++) allPts.push(pts[p]);
+    }
+  }
+
+  var firstTrack = tracks[0];
+  var firstSeg = firstTrack.querySelector('trkseg');
+  if (!firstSeg) {
+    firstSeg = doc.createElementNS('http://www.topografix.com/GPX/1/1', 'trkseg');
+    firstTrack.appendChild(firstSeg);
+  }
+
+  for (var i = 0; i < allPts.length; i++) firstSeg.appendChild(allPts[i]);
+
+  var oldSegs = firstTrack.querySelectorAll('trkseg');
+  for (var i = oldSegs.length - 1; i >= 1; i--) firstTrack.removeChild(oldSegs[i]);
+
+  for (var t = tracks.length - 1; t >= 1; t--) tracks[t].parentNode.removeChild(tracks[t]);
+
+  return { xml: new XMLSerializer().serializeToString(doc), tracks: tracks.length, segs: segCount, pts: allPts.length };
+}
+
 // ── Simplify (Douglas-Peucker) ──
 
 function perpDist(p, a, b) {
@@ -672,8 +732,11 @@ function handleFile(file) {
         $('#reverseContent').hidden = false;
         $('#simplifyEmpty').hidden = true;
         $('#simplifyContent').hidden = false;
+        $('#flattenEmpty').hidden = true;
+        $('#flattenContent').hidden = false;
         syncProfileFile();
         buildStripOptions();
+        updateFlattenInfo();
       },
       function() {
         var origSize = new Blob([currentText]).size;
@@ -722,6 +785,9 @@ function clearFile() {
   $('#reverseContent').hidden = true;
   $('#simplifyEmpty').hidden = false;
   $('#simplifyContent').hidden = true;
+  $('#flattenEmpty').hidden = false;
+  $('#flattenContent').hidden = true;
+  $('#flattenInfo').hidden = true;
   lastSimplifyResult = null;
   if (simplifyMap) { simplifyMap.remove(); simplifyMap = null; }
   $('#simplifyMapWrap').hidden = true;
@@ -757,6 +823,38 @@ $('#reverseBtn').addEventListener('click', function() {
   if (!currentText) return;
   var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
   downloadGpx(reverseGpx(currentText), name + '_reversed.gpx');
+});
+
+// ── Flatten action ──
+
+function updateFlattenInfo() {
+  if (!currentText) return;
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(currentText), 'text/xml');
+  var tracks = doc.querySelectorAll('trk');
+  var segCount = 0, ptCount = 0;
+  for (var t = 0; t < tracks.length; t++) {
+    var segs = tracks[t].querySelectorAll('trkseg');
+    segCount += segs.length;
+    for (var s = 0; s < segs.length; s++) ptCount += segs[s].querySelectorAll('trkpt').length;
+  }
+  $('#flattenTracks').textContent = tracks.length;
+  $('#flattenSegs').textContent = segCount;
+  $('#flattenPts').textContent = ptCount.toLocaleString();
+  $('#flattenInfo').hidden = false;
+  if (tracks.length <= 1 && segCount <= 1) {
+    $('#flattenStatus').textContent = 'Already a single segment — nothing to flatten.';
+    $('#flattenBtn').disabled = true;
+  } else {
+    $('#flattenStatus').textContent = '';
+    $('#flattenBtn').disabled = false;
+  }
+}
+
+$('#flattenBtn').addEventListener('click', function() {
+  if (!currentText) return;
+  var result = flattenGpx(currentText);
+  var name = currentFile ? currentFile.name.replace(/\.gpx$/i, '') : 'track';
+  downloadGpx(result.xml, name + '_flattened.gpx');
 });
 
 // ── Simplify action ──
