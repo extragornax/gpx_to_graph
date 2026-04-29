@@ -212,6 +212,7 @@
     </div>
     <div id="simplifyContent" hidden>
       <p class="tool-desc">Reduce file size by simplifying the track and stripping unnecessary data.</p>
+      <p class="tool-desc" id="simplifyCurrentPts" style="font-variant-numeric:tabular-nums"></p>
       <div class="field">
         <label for="simplifyTolerance"><span class="num">&#x2460;</span> Tolerance</label>
         <div class="slider-row">
@@ -303,6 +304,7 @@ function fixGpxNamespaces(text) {
   while ((m = prefixRe.exec(text)) !== null) used.add(m[1]);
   var known = {
     gpxtpx: 'http://www.garmin.com/xmlschemas/TrackPointExtension/v1',
+    gpxpx: 'http://www.garmin.com/xmlschemas/PowerExtension/v1',
     gpxx: 'http://www.garmin.com/xmlschemas/GpxExtensions/v3',
     cluetrust: 'http://www.cluetrust.com/XML/GPXDATA/1/0',
     power: 'http://www.garmin.com/xmlschemas/PowerExtension/v1',
@@ -633,6 +635,7 @@ function simplifyGpx(text, tolerance, stripSet) {
     keep.forEach(function(idx) { keptCoords.push(coords[idx]); });
   }
   if (stripSet && stripSet.size > 0) {
+    var wrapperNames = { power: 'PowerExtension' };
     var remaining = doc.querySelectorAll('trkpt');
     for (var i = 0; i < remaining.length; i++) {
       var pt = remaining[i];
@@ -641,11 +644,27 @@ function simplifyGpx(text, tolerance, stripSet) {
       if (stripSet.has('extensions')) {
         var ext = pt.querySelector('extensions'); if (ext) pt.removeChild(ext);
       } else {
-        stripSet.forEach(function(tag) {
-          if (tag === 'time' || tag === 'ele' || tag === 'extensions') return;
-          var els = pt.querySelectorAll(tag);
-          for (var k = 0; k < els.length; k++) els[k].parentNode.removeChild(els[k]);
-        });
+        var ext = pt.querySelector('extensions');
+        if (ext) {
+          stripSet.forEach(function(tag) {
+            if (tag === 'time' || tag === 'ele' || tag === 'extensions') return;
+            var wrapper = wrapperNames[tag];
+            if (wrapper) {
+              for (var c = ext.children.length - 1; c >= 0; c--) {
+                if (ext.children[c].localName === wrapper) ext.removeChild(ext.children[c]);
+              }
+            } else {
+              var walk = ext.querySelectorAll('*');
+              for (var k = walk.length - 1; k >= 0; k--) {
+                if (walk[k].localName === tag) walk[k].parentNode.removeChild(walk[k]);
+              }
+            }
+          });
+          for (var c = ext.children.length - 1; c >= 0; c--) {
+            if (ext.children[c].children.length === 0 && !ext.children[c].textContent.trim()) ext.removeChild(ext.children[c]);
+          }
+          if (ext.children.length === 0) pt.removeChild(ext);
+        }
       }
     }
   }
@@ -737,6 +756,10 @@ function handleFile(file) {
         syncProfileFile();
         buildStripOptions();
         updateFlattenInfo();
+        if (currentData) {
+          var origSize = new Blob([currentText]).size;
+          $('#simplifyCurrentPts').textContent = 'Current: ' + currentData.pointCount.toLocaleString() + ' points · ' + formatBytes(origSize);
+        }
       },
       function() {
         var origSize = new Blob([currentText]).size;
@@ -869,15 +892,19 @@ function detectExtensions() {
   var doc = new DOMParser().parseFromString(fixGpxNamespaces(currentText), 'text/xml');
   var pts = doc.querySelectorAll('trkpt');
   var found = {};
+  var tagToWrapper = {};
   for (var i = 0; i < Math.min(pts.length, 200); i++) {
     var ext = pts[i].querySelector('extensions');
     if (ext) {
       for (var c = 0; c < ext.children.length; c++) {
         var inner = ext.children[c];
+        var wrapperLocal = inner.localName;
         for (var d = 0; d < inner.children.length; d++) {
           var tag = inner.children[d].localName;
+          if (tag === 'PowerInWatts') tag = 'power';
           if (!found[tag]) found[tag] = 0;
           found[tag] += new XMLSerializer().serializeToString(inner.children[d]).length;
+          tagToWrapper[tag] = wrapperLocal;
         }
       }
     }
@@ -885,7 +912,7 @@ function detectExtensions() {
     if (timeEl && !found['time']) found['time'] = 0;
     if (timeEl) found['time'] += new XMLSerializer().serializeToString(timeEl).length;
   }
-  return Object.keys(found).map(function(k) { return { tag: k, sampleBytes: found[k] }; });
+  return Object.keys(found).map(function(k) { return { tag: k, sampleBytes: found[k], wrapper: tagToWrapper[k] }; });
 }
 
 function buildStripOptions() {
@@ -957,13 +984,14 @@ function updateSimplifyPreview() {
   var result = simplifyGpx(currentText, tol, stripSet);
   lastSimplifyResult = result;
   var pct = ((1 - result.after / result.before) * 100).toFixed(0);
-  $('#simplifyInfo').textContent = result.after + ' / ' + result.before + ' pts (−' + pct + '%)';
+  $('#simplifyInfo').textContent = result.after.toLocaleString() + ' / ' + result.before.toLocaleString() + ' pts (−' + pct + '%)';
 
   var origSize = new Blob([currentText]).size;
   var newSize = new Blob([result.xml]).size;
   var savedPct = ((1 - newSize / origSize) * 100).toFixed(0);
-  $('#statPoints').textContent = result.before + ' → ' + result.after + ' (−' + pct + '%)';
+  $('#statPoints').textContent = result.before.toLocaleString() + ' → ' + result.after.toLocaleString() + ' (−' + pct + '%)';
   $('#statSize').textContent = formatBytes(origSize) + ' → ' + formatBytes(newSize) + ' (−' + savedPct + '%)';
+  $('#simplifyCurrentPts').textContent = 'Current: ' + result.before.toLocaleString() + ' points → After: ' + result.after.toLocaleString() + ' points (−' + pct + '%)';
   $('#simplifyStats').hidden = false;
   $('#simplifyBtn').disabled = false;
 
