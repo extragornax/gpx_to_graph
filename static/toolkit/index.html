@@ -214,10 +214,10 @@
       <p class="tool-desc">Reduce file size by simplifying the track and stripping unnecessary data.</p>
       <p class="tool-desc" id="simplifyCurrentPts" style="font-variant-numeric:tabular-nums"></p>
       <div class="field">
-        <label for="simplifyTolerance"><span class="num">&#x2460;</span> Tolerance</label>
+        <label for="simplifyPct"><span class="num">&#x2460;</span> Reduce points by</label>
         <div class="slider-row">
-          <input type="range" id="simplifyTolerance" min="0" max="100" value="30" step="1">
-          <span id="simplifyInfo" class="slider-info">&mdash;</span>
+          <input type="range" id="simplifyPct" min="0" max="99" value="0" step="1">
+          <span id="simplifyInfo" class="slider-info">0 %</span>
         </div>
       </div>
       <div class="field">
@@ -675,6 +675,27 @@ function sliderToTolerance(val) {
   return 0.000005 * Math.pow(400, val / 100);
 }
 
+function findToleranceForPct(text, targetPct) {
+  if (targetPct <= 0) return 0;
+  var doc = new DOMParser().parseFromString(fixGpxNamespaces(text), 'text/xml');
+  var totalPts = doc.querySelectorAll('trkpt').length;
+  var targetKeep = Math.max(2, Math.round(totalPts * (1 - targetPct / 100)));
+  var lo = 0, hi = 100, bestTol = 0;
+  for (var iter = 0; iter < 15; iter++) {
+    var mid = (lo + hi) / 2;
+    var tol = sliderToTolerance(mid);
+    var result = simplifyGpx(text, tol, new Set());
+    if (result.after <= targetKeep) {
+      hi = mid;
+    } else {
+      bestTol = tol;
+      lo = mid;
+    }
+    if (hi - lo < 0.1) break;
+  }
+  return sliderToTolerance(hi);
+}
+
 // ── Helpers ──
 
 function escapeHtml(s) {
@@ -944,34 +965,10 @@ function formatBytes(b) {
   return (b / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-var TARGET_SIZE = 24.9 * 1024 * 1024;
-
-function autoFitTolerance() {
-  if (!currentText) return;
-  var origSize = new Blob([currentText]).size;
-  if (origSize <= TARGET_SIZE) {
-    $('#simplifyTolerance').value = 0;
-    return;
-  }
-  var lo = 0, hi = 100, best = 100;
-  while (lo <= hi) {
-    var mid = Math.floor((lo + hi) / 2);
-    var tol = sliderToTolerance(mid);
-    var xml = simplifyGpx(currentText, tol, new Set()).xml;
-    var size = new Blob([xml]).size;
-    if (size <= TARGET_SIZE) {
-      best = mid;
-      hi = mid - 1;
-    } else {
-      lo = mid + 1;
-    }
-  }
-  $('#simplifyTolerance').value = best;
-}
-
 function updateSimplifyPreview() {
   if (!currentData) { $('#simplifyInfo').textContent = '—'; return; }
-  var tol = sliderToTolerance(parseInt($('#simplifyTolerance').value, 10));
+  var pctVal = parseInt($('#simplifyPct').value, 10);
+  var tol = findToleranceForPct(currentText, pctVal);
   var stripSet = getStripSet();
   var result = simplifyGpx(currentText, tol, stripSet);
   lastSimplifyResult = result;
@@ -1024,10 +1021,9 @@ function renderSimplifyMap(simplifiedCoords) {
   simplifyMap.fitBounds(simplifyOriginalLayer.getBounds(), { padding: [30, 30] });
 }
 
-$('#simplifyTolerance').addEventListener('input', function() {
+$('#simplifyPct').addEventListener('input', function() {
   var val = parseInt(this.value, 10);
-  var tol = sliderToTolerance(val);
-  $('#simplifyInfo').textContent = val === 0 ? 'No simplification' : 'Tolerance: ' + tol.toFixed(6);
+  $('#simplifyInfo').textContent = val + ' %';
 });
 
 $('#simplifyApplyBtn').addEventListener('click', updateSimplifyPreview);
