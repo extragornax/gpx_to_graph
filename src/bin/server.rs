@@ -1441,13 +1441,12 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// FIT → GPX conversion
+// FIT parsing – keeps data in native format until merge time
 // ---------------------------------------------------------------------------
 
-fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
+fn parse_fit_trkpts(data: &[u8]) -> Result<Vec<TrackPoint>, String> {
     use fitparser::profile::MesgNum;
     use fitparser::Value;
-    use std::fmt::Write;
     use std::io::Cursor;
 
     const SC_TO_DEG: f64 = 180.0 / 2_147_483_648.0;
@@ -1455,14 +1454,7 @@ fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
     let records =
         fitparser::from_reader(&mut Cursor::new(data)).map_err(|e| format!("FIT parse: {e}"))?;
 
-    let mut xml = String::with_capacity(data.len() * 3);
-    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-        <gpx version=\"1.1\" creator=\"gpx_to_graph\"\n  \
-        xmlns=\"http://www.topografix.com/GPX/1/1\"\n  \
-        xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n  \
-        xmlns:gpxpx=\"http://www.garmin.com/xmlschemas/PowerExtension/v1\">\n\
-        <trk><trkseg>\n");
-
+    let mut out = Vec::new();
     for rec in &records {
         if rec.kind() != MesgNum::Record {
             continue;
@@ -1470,12 +1462,7 @@ fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
 
         let mut lat: Option<f64> = None;
         let mut lon: Option<f64> = None;
-        let mut ele: Option<f64> = None;
-        let mut time: Option<String> = None;
-        let mut hr: Option<u8> = None;
-        let mut cad: Option<u8> = None;
-        let mut power: Option<u16> = None;
-        let mut temp: Option<i8> = None;
+        let mut pt = TrackPoint::default();
 
         for field in rec.fields() {
             match field.name() {
@@ -1490,8 +1477,8 @@ fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
                     }
                 }
                 "enhanced_altitude" | "altitude" => {
-                    if ele.is_none() {
-                        ele = match field.value() {
+                    if pt.ele.is_none() {
+                        pt.ele = match field.value() {
                             Value::Float64(v) => Some(*v),
                             Value::Float32(v) => Some(*v as f64),
                             Value::UInt16(v) => Some(*v as f64 / 5.0 - 500.0),
@@ -1501,63 +1488,83 @@ fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
                 }
                 "timestamp" => {
                     if let Value::Timestamp(ts) = field.value() {
-                        time = Some(ts.to_utc().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+                        pt.time = Some(ts.to_utc().timestamp() as f64);
                     }
                 }
                 "heart_rate" => {
                     if let Value::UInt8(v) = field.value() {
-                        hr = Some(*v);
+                        pt.hr = Some(*v as f64);
                     }
                 }
                 "cadence" => {
                     if let Value::UInt8(v) = field.value() {
-                        cad = Some(*v);
+                        pt.cad = Some(*v as f64);
                     }
                 }
                 "power" => {
                     if let Value::UInt16(v) = field.value() {
-                        power = Some(*v);
+                        pt.power = Some(*v as f64);
                     }
                 }
                 "temperature" => {
                     if let Value::SInt8(v) = field.value() {
-                        temp = Some(*v);
+                        pt.temp = Some(*v as f64);
                     }
                 }
                 _ => {}
             }
         }
 
-        let (Some(lat), Some(lon)) = (lat, lon) else {
+        let (Some(la), Some(lo)) = (lat, lon) else {
             continue;
         };
+        pt.lat = la;
+        pt.lon = lo;
+        out.push(pt);
+    }
+    Ok(out)
+}
 
-        let _ = write!(xml, "<trkpt lat=\"{lat:.7}\" lon=\"{lon:.7}\">");
-        if let Some(e) = ele {
+fn trackpoints_to_gpx_bytes(pts: &[TrackPoint]) -> Vec<u8> {
+    use std::fmt::Write;
+
+    let mut xml = String::with_capacity(pts.len() * 200);
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+        <gpx version=\"1.1\" creator=\"gpx_to_graph\"\n  \
+        xmlns=\"http://www.topografix.com/GPX/1/1\"\n  \
+        xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n  \
+        xmlns:gpxpx=\"http://www.garmin.com/xmlschemas/PowerExtension/v1\">\n\
+        <trk><trkseg>\n");
+
+    for p in pts {
+        let _ = write!(xml, "<trkpt lat=\"{:.7}\" lon=\"{:.7}\">", p.lat, p.lon);
+        if let Some(e) = p.ele {
             let _ = write!(xml, "<ele>{e:.1}</ele>");
         }
-        if let Some(t) = &time {
-            let _ = write!(xml, "<time>{t}</time>");
+        if let Some(epoch) = p.time {
+            if let Some(t) = chrono::DateTime::from_timestamp(epoch as i64, 0) {
+                let _ = write!(xml, "<time>{}</time>", t.format("%Y-%m-%dT%H:%M:%SZ"));
+            }
         }
 
-        let has_ext = hr.is_some() || cad.is_some() || power.is_some() || temp.is_some();
+        let has_ext = p.hr.is_some() || p.cad.is_some() || p.power.is_some() || p.temp.is_some();
         if has_ext {
             xml.push_str("<extensions>");
-            if hr.is_some() || cad.is_some() || temp.is_some() {
+            if p.hr.is_some() || p.cad.is_some() || p.temp.is_some() {
                 xml.push_str("<gpxtpx:TrackPointExtension>");
-                if let Some(v) = hr {
-                    let _ = write!(xml, "<gpxtpx:hr>{v}</gpxtpx:hr>");
+                if let Some(v) = p.hr {
+                    let _ = write!(xml, "<gpxtpx:hr>{}</gpxtpx:hr>", v as u16);
                 }
-                if let Some(v) = cad {
-                    let _ = write!(xml, "<gpxtpx:cad>{v}</gpxtpx:cad>");
+                if let Some(v) = p.cad {
+                    let _ = write!(xml, "<gpxtpx:cad>{}</gpxtpx:cad>", v as u16);
                 }
-                if let Some(v) = temp {
-                    let _ = write!(xml, "<gpxtpx:atemp>{v}</gpxtpx:atemp>");
+                if let Some(v) = p.temp {
+                    let _ = write!(xml, "<gpxtpx:atemp>{}</gpxtpx:atemp>", v as i16);
                 }
                 xml.push_str("</gpxtpx:TrackPointExtension>");
             }
-            if let Some(v) = power {
-                let _ = write!(xml, "<gpxpx:PowerExtension><gpxpx:PowerInWatts>{v}</gpxpx:PowerInWatts></gpxpx:PowerExtension>");
+            if let Some(v) = p.power {
+                let _ = write!(xml, "<gpxpx:PowerExtension><gpxpx:PowerInWatts>{}</gpxpx:PowerInWatts></gpxpx:PowerExtension>", v as u16);
             }
             xml.push_str("</extensions>");
         }
@@ -1566,7 +1573,7 @@ fn fit_to_gpx(data: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     xml.push_str("</trkseg></trk></gpx>\n");
-    Ok(xml.into_bytes())
+    xml.into_bytes()
 }
 
 fn is_fit_file(filename: Option<&str>, data: &[u8]) -> bool {
@@ -2277,31 +2284,6 @@ async fn merge_upload_handler(
         None => return (StatusCode::BAD_REQUEST, "No file provided.".to_string()).into_response(),
     };
 
-    let (filename, data) = if is_fit_file(filename.as_deref(), &data) {
-        match fit_to_gpx(&data) {
-            Ok(gpx_bytes) => {
-                let gpx_name = filename.map(|n| {
-                    n.strip_suffix(".fit")
-                        .or_else(|| n.strip_suffix(".FIT"))
-                        .unwrap_or(&n)
-                        .to_string()
-                        + ".gpx"
-                });
-                (gpx_name, gpx_bytes)
-            }
-            Err(e) => {
-                let label = filename.as_deref().unwrap_or("(unnamed)");
-                return (
-                    StatusCode::BAD_REQUEST,
-                    format!("Failed to convert FIT file '{label}': {e}"),
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        (filename, data)
-    };
-
     let mut map = sessions.lock().await;
 
     // Purge sessions older than 10 minutes
@@ -2353,25 +2335,30 @@ async fn merge_run_handler(
     if !(2..=5).contains(&files.len()) {
         return (
             StatusCode::BAD_REQUEST,
-            format!("Expected 2 to 5 GPX files, got {}.", files.len()),
+            format!("Expected 2 to 5 files, got {}.", files.len()),
         )
             .into_response();
     }
 
     let creator_for_task = creator;
     let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Value, Value), String> {
-        let per_file: Vec<Value> = files
-            .iter()
-            .map(|(name, data)| {
+        let mut per_file: Vec<Value> = Vec::new();
+        let mut gpx_files: Vec<Vec<u8>> = Vec::new();
+
+        for (name, data) in &files {
+            let label = name.clone().unwrap_or_else(|| "(unnamed)".to_string());
+            if is_fit_file(name.as_deref(), data) {
+                let pts = parse_fit_trkpts(data)?;
+                per_file.push(json!({ "name": label, "stats": stats_from_points(&pts) }));
+                gpx_files.push(trackpoints_to_gpx_bytes(&pts));
+            } else {
                 let pts = parse_all_trkpts(data);
-                json!({
-                    "name": name.clone().unwrap_or_else(|| "(unnamed)".to_string()),
-                    "stats": stats_from_points(&pts),
-                })
-            })
-            .collect();
-        let raw_files: Vec<Vec<u8>> = files.into_iter().map(|(_, d)| d).collect();
-        let merged = merge_gpx_preserving_extensions(raw_files, creator_for_task)?;
+                per_file.push(json!({ "name": label, "stats": stats_from_points(&pts) }));
+                gpx_files.push(data.clone());
+            }
+        }
+
+        let merged = merge_gpx_preserving_extensions(gpx_files, creator_for_task)?;
         let merged_pts = parse_all_trkpts(&merged);
         let stats = stats_from_points(&merged_pts);
         Ok((merged, stats, Value::Array(per_file)))
