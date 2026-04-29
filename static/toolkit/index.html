@@ -762,14 +762,6 @@ function handleFile(file) {
         }
       },
       function() {
-        var origSize = new Blob([currentText]).size;
-        if (origSize > TARGET_SIZE) {
-          $('#fileMeta').textContent = $('#fileMeta').textContent.replace(' · Preparing tools…', '') + ' · Auto-fitting simplify…';
-        }
-      },
-      function() {
-        autoFitTolerance();
-        updateSimplifyPreview();
         var meta = currentData.totalKm.toFixed(1) + ' km';
         if (currentData.elevGain > 0) meta += ' · +' + Math.round(currentData.elevGain) + ' m';
         meta += ' · ' + currentData.pointCount + ' pts';
