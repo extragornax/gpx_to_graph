@@ -1731,6 +1731,52 @@ fn splice_trksegs_before_first_close_trk(base: &[u8], extras: &[Vec<u8>]) -> Vec
     out
 }
 
+fn ensure_gpx_namespaces(data: Vec<u8>) -> Vec<u8> {
+    let Some(gpx_start) = find_after(&data, b"<gpx", 0) else {
+        return data;
+    };
+    let Some(gpx_end) = find_after(&data, b">", gpx_start) else {
+        return data;
+    };
+    let header = &data[gpx_start..=gpx_end];
+
+    let ns: &[(&[u8], &str)] = &[
+        (
+            b"gpxtpx:" as &[u8],
+            " xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"",
+        ),
+        (
+            b"gpxpx:",
+            " xmlns:gpxpx=\"http://www.garmin.com/xmlschemas/PowerExtension/v1\"",
+        ),
+    ];
+
+    let mut insertions = String::new();
+    for (prefix, decl) in ns {
+        let xmlns_key = format!("xmlns:{}=", std::str::from_utf8(&prefix[..prefix.len() - 1]).unwrap_or(""));
+        if data.windows(prefix.len()).any(|w| w == *prefix)
+            && !header.windows(xmlns_key.len()).any(|w| w == xmlns_key.as_bytes())
+        {
+            insertions.push_str(decl);
+        }
+    }
+
+    if insertions.is_empty() {
+        return data;
+    }
+
+    let insert_at = if gpx_end > 0 && data[gpx_end - 1] == b'/' {
+        gpx_end - 1
+    } else {
+        gpx_end
+    };
+    let mut out = Vec::with_capacity(data.len() + insertions.len());
+    out.extend_from_slice(&data[..insert_at]);
+    out.extend_from_slice(insertions.as_bytes());
+    out.extend_from_slice(&data[insert_at..]);
+    out
+}
+
 fn merge_gpx_preserving_extensions(
     files: Vec<Vec<u8>>,
     creator: Option<String>,
@@ -1754,7 +1800,8 @@ fn merge_gpx_preserving_extensions(
         None => base,
     };
 
-    Ok(splice_trksegs_before_first_close_trk(&base, &extras))
+    let merged = splice_trksegs_before_first_close_trk(&base, &extras);
+    Ok(ensure_gpx_namespaces(merged))
 }
 
 // ---------------------------------------------------------------------------
