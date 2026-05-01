@@ -324,7 +324,7 @@ main {
   padding: 1rem 1.25rem 1.1rem;
   margin: 1rem 0 1.5rem;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0.75rem 1.25rem;
 }
 @media (max-width: 720px) { .kinds { grid-template-columns: 1fr 1fr; } }
@@ -691,6 +691,26 @@ button[type="submit"] .btn-arrow {
   padding: 2.5rem 1rem;
   font-size: 1.05rem;
 }
+
+/* Export button */
+.export-btn {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ink);
+  border: 0;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background .15s;
+}
+.export-btn:hover { background: var(--red); }
+.export-btn .btn-arrow { font-size: 1rem; }
 
 /* ========================= COLOPHON ========================= */
 .colophon {

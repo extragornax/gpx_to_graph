@@ -18,6 +18,7 @@ pub enum PoiKind {
     Supermarket,
     Tobacco,
     Fountain,
+    Cemetery,
     Other,
 }
 
@@ -25,8 +26,12 @@ impl PoiKind {
     pub fn from_tags(tags: &serde_json::Map<String, serde_json::Value>) -> Self {
         let amenity = tags.get("amenity").and_then(|v| v.as_str()).unwrap_or("");
         let shop = tags.get("shop").and_then(|v| v.as_str()).unwrap_or("");
+        let landuse = tags.get("landuse").and_then(|v| v.as_str()).unwrap_or("");
         if amenity == "drinking_water" || shop == "water" {
             return PoiKind::Fountain;
+        }
+        if amenity == "grave_yard" || landuse == "cemetery" {
+            return PoiKind::Cemetery;
         }
         if amenity == "bar" || amenity == "cafe" || amenity == "pub" {
             return PoiKind::Tobacco;
@@ -48,6 +53,7 @@ impl PoiKind {
             PoiKind::Supermarket => "supermarket",
             PoiKind::Tobacco => "bar_tabac",
             PoiKind::Fountain => "fountain",
+            PoiKind::Cemetery => "cemetery",
             PoiKind::Other => "other",
         }
     }
@@ -107,7 +113,7 @@ impl OverpassCache {
             max_lat + pad_lat,
             max_lon + pad_lon
         );
-        let key = format!("v1|{}", bbox_str);
+        let key = format!("v2|{}", bbox_str);
 
         let now = chrono::Utc::now().timestamp();
         if let Some(payload) = self.read_cache(&key, now)? {
@@ -118,7 +124,8 @@ impl OverpassCache {
             r#"[out:json][timeout:50];
 (
   nwr["shop"~"^(bakery|pastry|supermarket|convenience|tobacco)$"]({bbox});
-  nwr["amenity"~"^(bar|cafe|pub|drinking_water)$"]({bbox});
+  nwr["amenity"~"^(bar|cafe|pub|drinking_water|grave_yard)$"]({bbox});
+  nwr["landuse"="cemetery"]({bbox});
 );
 out center tags;"#,
             bbox = bbox_str

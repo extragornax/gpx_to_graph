@@ -108,6 +108,11 @@
         <span class="mark"></span>
         <span class="kind-label"><span class="glyph">💧</span>Fontaine</span>
       </label>
+      <label>
+        <input type="checkbox" class="kind" value="cemetery" checked>
+        <span class="mark"></span>
+        <span class="kind-label"><span class="glyph">🪦</span>Cimetière</span>
+      </label>
     </fieldset>
 
     <div class="actions">
@@ -157,7 +162,7 @@
         </div>
       </header>
       <div class="chart-wrap">
-        <svg id="chart" viewBox="0 0 1200 320" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="chart" viewBox="0 0 1200 360" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
     </article>
 
@@ -167,6 +172,10 @@
           <span class="kicker">Tableau complet</span>
           <h2>Every ravito, in order</h2>
         </div>
+        <button type="button" id="export-btn" class="export-btn" hidden>
+          <span class="btn-arrow">↓</span>
+          <span class="btn-label">Export</span>
+        </button>
       </header>
       <div class="table-wrap">
         <table id="tbl">
@@ -203,6 +212,7 @@ const KIND = {
   supermarket: { glyph: '🛒', label: 'supermarché', color: '#2b261b' },
   bar_tabac:   { glyph: '☕', label: 'bar-tabac',   color: '#6b2238' },
   fountain:    { glyph: '💧', label: 'fontaine',    color: '#1b4a8a' },
+  cemetery:    { glyph: '🪦', label: 'cimetière',   color: '#4a5a4a' },
   other:       { glyph: '•',  label: 'autre',       color: '#79654a' },
 };
 
@@ -213,6 +223,7 @@ const BLUE = '#1b4a8a';
 const SEPIA = '#79654a';
 
 let _map = null;
+let _lastData = null;
 
 function initStart() {
   const d = new Date();
@@ -278,6 +289,9 @@ function hoursMins(totalMin) {
 }
 
 function render(data) {
+  _lastData = data;
+  const exportBtn = $('#export-btn');
+  if (exportBtn) exportBtn.hidden = false;
   const startDate = new Date(data.start_unix * 1000);
   const durationMin = (data.total_km / data.speed_kmh) * 60;
   const endDate = new Date((data.start_unix + durationMin * 60) * 1000);
@@ -385,7 +399,7 @@ function renderSilhouette(data) {
 function renderChart(data) {
   const svg = $('#chart');
   svg.innerHTML = '';
-  const W = 1200, H = 320;
+  const W = 1200, H = 360;
   const M = { l: 110, r: 40, t: 34, b: 64 };
   const plotW = W - M.l - M.r;
   const trackY = M.t + 142;
@@ -402,6 +416,7 @@ function renderChart(data) {
     { key: 'supermarket', y: trackY - 80,  label: 'SUPERMARCHÉ' },
     { key: 'bar_tabac',   y: trackY - 48,  label: 'BAR-TABAC' },
     { key: 'fountain',    y: trackY + 64,  label: 'FONTAINE' },
+    { key: 'cemetery',    y: trackY + 96,  label: 'CIMETIÈRE' },
   ];
   for (const l of lanes) {
     svg.insertAdjacentHTML('beforeend', `
@@ -511,9 +526,82 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
+function exportHtml() {
+  if (!_lastData) return;
+  const data = _lastData;
+  const startDate = new Date(data.start_unix * 1000);
+  const durationMin = (data.total_km / data.speed_kmh) * 60;
+  const endDate = new Date((data.start_unix + durationMin * 60) * 1000);
+
+  let rows = '';
+  for (const p of data.pois) {
+    const eta = new Date(p.eta_unix * 1000);
+    const kind = KIND[p.kind] || KIND.other;
+    const statusLabel =
+      p.status_at_eta === 'open'   ? 'OUVERT' :
+      p.status_at_eta === 'closed' ? 'FERMÉ'  : '?';
+    const statusClass = p.status_at_eta;
+    rows += `<tr>
+      <td class="r">${p.km.toFixed(1)}</td>
+      <td>${kind.glyph} ${escapeHtml(kind.label)}</td>
+      <td><strong>${escapeHtml(p.name || '—')}</strong></td>
+      <td>${fmtTime(eta)}</td>
+      <td><span class="st ${statusClass}">${statusLabel}</span></td>
+      <td class="hrs">${p.opening_hours ? escapeHtml(p.opening_hours) : '—'}</td>
+      <td class="r">${p.detour_m.toFixed(0)} m</td>
+    </tr>`;
+  }
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Ravito — ${data.total_km.toFixed(1)} km</title>
+<style>
+body{margin:2rem auto;max-width:900px;font-family:system-ui,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5}
+h1{font-size:1.4rem;margin:0 0 .3rem}
+.meta{color:#666;font-size:.85rem;margin:0 0 1.5rem}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:#666;padding:.5rem .6rem;border-bottom:2px solid #1a1a1a}
+td{padding:.45rem .6rem;border-bottom:1px solid #ddd;vertical-align:middle}
+tr:nth-child(even) td{background:#f8f8f8}
+.r{text-align:right;font-variant-numeric:tabular-nums}
+.hrs{font-size:.78rem;color:#555;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:.15rem .4rem;border:1px solid}
+.st.open{color:#fff;background:#1b4a8a;border-color:#1b4a8a}
+.st.closed{color:#b8202a;border-color:#b8202a;background:rgba(184,32,42,.08)}
+.st.unknown{color:#79654a;border-color:#79654a;border-style:dashed}
+@media print{body{margin:1rem}table{font-size:12px}}
+</style>
+</head>
+<body>
+<h1>Ravito — ${data.total_km.toFixed(1)} km</h1>
+<p class="meta">
+  Départ ${fmtDate(startDate)} ${fmtTime(startDate)} · Arrivée ${fmtDate(endDate)} ${fmtTime(endDate)} ·
+  ${data.speed_kmh.toFixed(0)} km/h · corridor ±${data.corridor_m.toFixed(0)} m ·
+  ${data.pois.length} arrêts
+</p>
+<table>
+<thead><tr>
+  <th class="r">km</th><th>genre</th><th>enseigne</th><th>ETA</th><th>état</th><th>horaires</th><th class="r">détour</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ravito-' + data.total_km.toFixed(0) + 'km.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 initStart();
 initEditionDate();
 $('#f').addEventListener('submit', submit);
+$('#export-btn').addEventListener('click', exportHtml);
 </script>
 </body>
 </html>
