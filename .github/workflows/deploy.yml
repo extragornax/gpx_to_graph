@@ -51,18 +51,5 @@ jobs:
             git fetch --prune origin
             git checkout main
             git pull --ff-only origin main
-            echo "== Rebuilding container =="
-            docker compose up -d --build
-            echo "== Waiting for healthy =="
-            for i in $(seq 1 20); do
-              status=$(docker inspect --format='{{.State.Health.Status}}' madcap_fast 2>/dev/null || echo "none")
-              echo "health[$i]: $status"
-              if [ "$status" = "healthy" ]; then
-                echo "== Deploy OK =="
-                exit 0
-              fi
-              sleep 3
-            done
-            echo "== Container not healthy after 60s ==" >&2
-            docker compose logs --tail=80 madcap_fast || true
-            exit 1
+            echo "== Blue-green deploy =="
+            ./deploy.sh

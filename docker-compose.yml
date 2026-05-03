@@ -1,15 +1,24 @@
 services:
-  gpx:
+  gpx-blue:
+    image: gpx-app:latest
     build: .
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
-      # Public URL used in OG meta + the gpx.studio "Open in" link.
-      # Must be HTTPS (mixed-content blocks the gpx.studio fetch otherwise).
-      # Override with the real domain on first deploy:
-      #   PUBLIC_BASE_URL=https://gpx.example.com docker compose up -d
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+    volumes:
+      - gpx_data:/data
+
+  gpx-green:
+    image: gpx-app:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
     volumes:
       - gpx_data:/data
