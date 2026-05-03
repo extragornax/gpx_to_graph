@@ -599,6 +599,12 @@ main {
   color: var(--carmine);
   font-style: normal;
 }
+.bmc-link {
+  color: rgba(10, 31, 59, 0.6); text-decoration: none;
+  border-bottom: 1px dotted rgba(10, 31, 59, 0.3);
+  transition: color 0.15s, border-color 0.15s;
+}
+.bmc-link:hover { color: var(--carmine); border-color: var(--carmine); }
 
 /* ---------- Print fallbacks ---------- */
 

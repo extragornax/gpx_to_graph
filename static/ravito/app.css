@@ -735,6 +735,12 @@ button[type="submit"] .btn-arrow {
   text-transform: none;
   color: var(--ink-soft);
 }
+.bmc-link {
+  color: var(--sepia); text-decoration: none;
+  border-bottom: 1px dotted var(--sepia-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+.bmc-link:hover { color: var(--red); border-color: var(--red); }
 
 /* ========================= ANIMATIONS ========================= */
 @keyframes rise {

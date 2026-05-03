@@ -396,6 +396,12 @@ main {
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--sepia);
   border-top: 1.5px solid var(--ink); flex-wrap: wrap;
 }
+.bmc-link {
+  color: var(--sepia); text-decoration: none;
+  border-bottom: 1px dotted var(--sepia-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+.bmc-link:hover { color: var(--red); border-color: var(--red); }
 .col-mid {
   font-family: 'Fraunces', serif; font-style: italic; font-size: 0.85rem;
   letter-spacing: 0.01em; text-transform: none; color: var(--ink-soft);
