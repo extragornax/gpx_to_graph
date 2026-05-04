@@ -2768,11 +2768,9 @@ async fn main() {
     let col_db = gpx_to_graph::col::db::Db::open(&col_db_path)
         .expect("failed to open col db");
     col_db.migrate().expect("failed to migrate col db");
-    let col_strava = gpx_to_graph::col::strava::StravaConfig::from_env();
     let col_state: gpx_to_graph::col::SharedState = std::sync::Arc::new(
         gpx_to_graph::col::AppState {
             db: col_db,
-            strava: col_strava,
         },
     );
 
@@ -2812,12 +2810,13 @@ async fn main() {
 
     // --- Auth service ---
     let auth_db_path = std::env::var("AUTH_DB_PATH").unwrap_or_else(|_| "data/auth.db".into());
-    let auth_state = gpx_to_graph::auth::build_state(&auth_db_path);
+    let strava_config = gpx_to_graph::auth::strava::StravaConfig::from_env();
+    let auth_state = gpx_to_graph::auth::build_state(&auth_db_path, strava_config);
     {
         let auth_cleanup = auth_state.clone();
         tokio::spawn(async move {
             loop {
-                let _ = auth_cleanup.cleanup_expired_sessions();
+                let _ = auth_cleanup.db.cleanup_expired_sessions();
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             }
         });

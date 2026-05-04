@@ -1,13 +1,12 @@
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Redirect};
-use axum::routing::{delete, get, post, put};
-use axum::{Json, Router};
+use axum::response::{Html, IntoResponse};
+use axum::routing::{get, post, put};
+use axum::{Extension, Json, Router};
 use serde::Deserialize;
 
-use crate::auth::CurrentUser;
+use crate::auth::{self, strava, AuthState, CurrentUser};
 use super::climb;
-use super::strava;
 use super::SharedState;
 
 const INDEX_HTML: &str = include_str!("../../static/col/index.html");
@@ -23,12 +22,8 @@ pub fn router() -> Router<SharedState> {
         .route("/api/climbs/{id}/name", put(rename_climb))
         .route("/api/stats", get(get_stats))
         .route("/api/reset", post(reset_data))
-        // Strava (protected)
-        .route("/auth/strava", get(strava_auth))
-        .route("/auth/strava/callback", get(strava_callback))
-        .route("/api/strava/status", get(strava_status))
+        // Strava sync (protected, col-specific)
         .route("/api/strava/sync", post(strava_sync))
-        .route("/api/strava", delete(strava_disconnect))
         // Strava webhooks (public)
         .route("/webhook/strava", get(strava_webhook_verify))
         .route("/webhook/strava", post(strava_webhook_event))
@@ -149,82 +144,21 @@ async fn reset_data(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// ── Strava OAuth ──
-
-async fn strava_auth(
-    State(state): State<SharedState>,
-    _user: CurrentUser,
-) -> Result<Redirect, (StatusCode, String)> {
-    let config = state.strava.as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "Strava integration not configured".into()))?;
-    Ok(Redirect::temporary(&config.authorize_url()))
-}
-
-#[derive(Deserialize)]
-struct StravaCallbackParams {
-    code: String,
-}
-
-async fn strava_callback(
-    State(state): State<SharedState>,
-    user: CurrentUser,
-    Query(params): Query<StravaCallbackParams>,
-) -> Result<Redirect, (StatusCode, String)> {
-    let config = state.strava.as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "Strava integration not configured".into()))?;
-
-    let token = strava::exchange_code(config, &params.code).await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Strava token exchange failed: {e}")))?;
-
-    let name = match (&token.athlete.firstname, &token.athlete.lastname) {
-        (Some(f), Some(l)) => Some(format!("{f} {l}")),
-        (Some(f), None) => Some(f.clone()),
-        _ => None,
-    };
-
-    state.db.save_strava_tokens(
-        user.id, &token.access_token, &token.refresh_token,
-        token.expires_at, token.athlete.id, name.as_deref(),
-    ).map_err(err500)?;
-
-    Ok(Redirect::temporary("/"))
-}
-
-async fn strava_status(
-    State(state): State<SharedState>,
-    user: CurrentUser,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let configured = state.strava.is_some();
-    let tokens = state.db.get_strava_tokens(user.id).map_err(err500)?;
-
-    Ok(Json(serde_json::json!({
-        "configured": configured,
-        "connected": tokens.is_some(),
-        "athlete_name": tokens.as_ref().and_then(|t| t.athlete_name.clone()),
-    })))
-}
-
-async fn strava_disconnect(
-    State(state): State<SharedState>,
-    user: CurrentUser,
-) -> Result<StatusCode, (StatusCode, String)> {
-    state.db.delete_strava_tokens(user.id).map_err(err500)?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
 // ── Strava sync (background) ──
 
 async fn strava_sync(
     State(state): State<SharedState>,
+    Extension(auth): Extension<AuthState>,
     user: CurrentUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let token = get_valid_token(&state, user.id).await?;
+    let token = get_valid_token(&auth, user.id).await?;
 
     tokio::spawn({
         let state = state.clone();
+        let auth = auth.clone();
         let user_id = user.id;
         async move {
-            if let Err(e) = run_sync(&state, user_id, &token).await {
+            if let Err(e) = run_sync(&state, &auth, user_id, &token).await {
                 tracing::error!(user_id, "background sync failed: {e}");
             }
         }
@@ -233,7 +167,7 @@ async fn strava_sync(
     Ok(Json(serde_json::json!({ "status": "sync_started" })))
 }
 
-async fn run_sync(state: &SharedState, user_id: i64, token: &str) -> anyhow::Result<()> {
+async fn run_sync(state: &SharedState, auth: &AuthState, user_id: i64, token: &str) -> anyhow::Result<()> {
     let mut page = 1u32;
     loop {
         let activities = strava::fetch_activities(token, page).await?;
@@ -251,7 +185,7 @@ async fn run_sync(state: &SharedState, user_id: i64, token: &str) -> anyhow::Res
                 continue;
             }
 
-            process_activity(state, user_id, activity.id, &activity.name, &activity.start_date_local).await?;
+            process_activity(state, auth, user_id, activity.id, &activity.name, &activity.start_date_local).await?;
             state.db.mark_activity_synced(user_id, activity.id)?;
         }
 
@@ -264,15 +198,18 @@ async fn run_sync(state: &SharedState, user_id: i64, token: &str) -> anyhow::Res
     Ok(())
 }
 
-async fn process_activity(state: &SharedState, user_id: i64, activity_id: i64, name: &str, start_date: &str) -> anyhow::Result<()> {
-    let config = state.strava.as_ref().ok_or_else(|| anyhow::anyhow!("Strava not configured"))?;
-    let tokens = state.db.get_strava_tokens(user_id)?
+async fn process_activity(state: &SharedState, auth: &AuthState, user_id: i64, activity_id: i64, name: &str, start_date: &str) -> anyhow::Result<()> {
+    let tokens = auth.db.get_strava_tokens(user_id)?
         .ok_or_else(|| anyhow::anyhow!("No Strava tokens for user {user_id}"))?;
 
-    let access_token = ensure_fresh_token(state, config, user_id, &tokens).await?;
+    let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
     let streams = strava::fetch_streams(&access_token, activity_id).await?;
-    let Some(profile) = streams else { return Ok(()); };
+    let Some(points) = streams else { return Ok(()); };
+
+    let profile: Vec<climb::ProfilePoint> = points.iter()
+        .map(|p| (p.distance_km, p.elevation, p.lat, p.lon))
+        .collect();
 
     let date = &start_date[..10.min(start_date.len())];
     let detected = climb::detect_climbs(&profile, 50.0);
@@ -291,25 +228,10 @@ async fn process_activity(state: &SharedState, user_id: i64, activity_id: i64, n
     Ok(())
 }
 
-async fn ensure_fresh_token(state: &SharedState, config: &strava::StravaConfig, user_id: i64, tokens: &super::db::StravaTokens) -> anyhow::Result<String> {
-    let now = chrono::Utc::now().timestamp();
-    if now < tokens.expires_at - 60 {
-        return Ok(tokens.access_token.clone());
-    }
-    let refreshed = strava::refresh_token(config, &tokens.refresh_token).await?;
-    state.db.save_strava_tokens(
-        user_id, &refreshed.access_token, &refreshed.refresh_token,
-        refreshed.expires_at, tokens.athlete_id, tokens.athlete_name.as_deref(),
-    )?;
-    Ok(refreshed.access_token)
-}
-
-async fn get_valid_token(state: &SharedState, user_id: i64) -> Result<String, (StatusCode, String)> {
-    let config = state.strava.as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "Strava not configured".into()))?;
-    let tokens = state.db.get_strava_tokens(user_id).map_err(err500)?
+async fn get_valid_token(auth: &AuthState, user_id: i64) -> Result<String, (StatusCode, String)> {
+    let tokens = auth.db.get_strava_tokens(user_id).map_err(err500)?
         .ok_or((StatusCode::UNAUTHORIZED, "Strava not connected".into()))?;
-    ensure_fresh_token(state, config, user_id, &tokens)
+    auth::ensure_fresh_token(auth, user_id, &tokens)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Token refresh failed: {e}")))
 }
@@ -327,10 +249,10 @@ struct WebhookVerifyParams {
 }
 
 async fn strava_webhook_verify(
-    State(state): State<SharedState>,
+    Extension(auth): Extension<AuthState>,
     Query(params): Query<WebhookVerifyParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let config = state.strava.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let config = auth.strava_config.as_ref().ok_or(StatusCode::NOT_FOUND)?;
 
     if params.mode != "subscribe" || params.verify_token != config.webhook_verify_token {
         return Err(StatusCode::FORBIDDEN);
@@ -349,6 +271,7 @@ struct WebhookEvent {
 
 async fn strava_webhook_event(
     State(state): State<SharedState>,
+    Extension(auth): Extension<AuthState>,
     Json(event): Json<WebhookEvent>,
 ) -> StatusCode {
     if event.object_type != "activity" || event.aspect_type != "create" {
@@ -356,7 +279,7 @@ async fn strava_webhook_event(
     }
 
     tokio::spawn(async move {
-        if let Err(e) = handle_webhook_activity(&state, event.owner_id, event.object_id).await {
+        if let Err(e) = handle_webhook_activity(&state, &auth, event.owner_id, event.object_id).await {
             tracing::error!(athlete_id = event.owner_id, activity_id = event.object_id, "webhook processing failed: {e}");
         }
     });
@@ -364,16 +287,15 @@ async fn strava_webhook_event(
     StatusCode::OK
 }
 
-async fn handle_webhook_activity(state: &SharedState, athlete_id: i64, activity_id: i64) -> anyhow::Result<()> {
-    let (user_id, tokens) = state.db.get_strava_tokens_by_athlete(athlete_id)?
+async fn handle_webhook_activity(state: &SharedState, auth: &AuthState, athlete_id: i64, activity_id: i64) -> anyhow::Result<()> {
+    let (user_id, tokens) = auth.db.get_strava_tokens_by_athlete(athlete_id)?
         .ok_or_else(|| anyhow::anyhow!("No user linked to athlete {athlete_id}"))?;
 
     if state.db.is_activity_synced(user_id, activity_id)? {
         return Ok(());
     }
 
-    let config = state.strava.as_ref().ok_or_else(|| anyhow::anyhow!("Strava not configured"))?;
-    let access_token = ensure_fresh_token(state, config, user_id, &tokens).await?;
+    let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
     let activity = strava::fetch_activity(&access_token, activity_id).await?;
     let Some(activity) = activity else { return Ok(()); };
@@ -383,7 +305,7 @@ async fn handle_webhook_activity(state: &SharedState, athlete_id: i64, activity_
         return Ok(());
     }
 
-    process_activity(state, user_id, activity_id, &activity.name, &activity.start_date_local).await?;
+    process_activity(state, auth, user_id, activity_id, &activity.name, &activity.start_date_local).await?;
     state.db.mark_activity_synced(user_id, activity_id)?;
     tracing::info!(user_id, activity_id, "webhook: processed activity");
     Ok(())

@@ -1,4 +1,3 @@
-use super::climb::ProfilePoint;
 use serde::Deserialize;
 
 pub struct StravaConfig {
@@ -12,16 +11,33 @@ impl StravaConfig {
     pub fn from_env() -> Option<Self> {
         let client_id = std::env::var("STRAVA_CLIENT_ID").ok()?;
         let client_secret = std::env::var("STRAVA_CLIENT_SECRET").ok()?;
-        let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
-        let webhook_verify_token = std::env::var("STRAVA_WEBHOOK_VERIFY_TOKEN")
-            .unwrap_or_else(|_| format!("col-verify-{}", &client_secret[..8.min(client_secret.len())]));
-        Some(Self { client_id, client_secret, base_url, webhook_verify_token })
+        let base_url =
+            std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+        let webhook_verify_token = std::env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_else(
+            |_| format!("col-verify-{}", &client_secret[..8.min(client_secret.len())]),
+        );
+        Some(Self {
+            client_id,
+            client_secret,
+            base_url,
+            webhook_verify_token,
+        })
     }
 
-    pub fn authorize_url(&self) -> String {
+    pub fn authorize_url(&self, redirect_after: Option<&str>) -> String {
+        let state = redirect_after.unwrap_or("/");
+        let encoded: String = state
+            .bytes()
+            .flat_map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                    vec![b as char]
+                }
+                _ => format!("%{b:02X}").chars().collect(),
+            })
+            .collect();
         format!(
-            "https://www.strava.com/oauth/authorize?client_id={}&redirect_uri={}/auth/strava/callback&response_type=code&scope=activity:read_all&approval_prompt=auto",
-            self.client_id, self.base_url,
+            "https://www.strava.com/oauth/authorize?client_id={}&redirect_uri={}/auth/strava/callback&response_type=code&scope=activity:read_all&approval_prompt=auto&state={}",
+            self.client_id, self.base_url, encoded,
         )
     }
 }
@@ -66,7 +82,10 @@ pub async fn exchange_code(config: &StravaConfig, code: &str) -> anyhow::Result<
     Ok(resp)
 }
 
-pub async fn refresh_token(config: &StravaConfig, refresh: &str) -> anyhow::Result<RefreshResponse> {
+pub async fn refresh_token(
+    config: &StravaConfig,
+    refresh: &str,
+) -> anyhow::Result<RefreshResponse> {
     let client = reqwest::Client::new();
     let resp = client
         .post("https://www.strava.com/oauth/token")
@@ -84,6 +103,13 @@ pub async fn refresh_token(config: &StravaConfig, refresh: &str) -> anyhow::Resu
     Ok(resp)
 }
 
+pub struct StreamPoint {
+    pub distance_km: f64,
+    pub elevation: f64,
+    pub lat: f64,
+    pub lon: f64,
+}
+
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct StravaActivity {
@@ -95,7 +121,10 @@ pub struct StravaActivity {
     pub total_elevation_gain: Option<f64>,
 }
 
-pub async fn fetch_activities(access_token: &str, page: u32) -> anyhow::Result<Vec<StravaActivity>> {
+pub async fn fetch_activities(
+    access_token: &str,
+    page: u32,
+) -> anyhow::Result<Vec<StravaActivity>> {
     let client = reqwest::Client::new();
     let resp = client
         .get("https://www.strava.com/api/v3/athlete/activities")
@@ -116,7 +145,10 @@ struct StreamEntry {
     data: serde_json::Value,
 }
 
-pub async fn fetch_streams(access_token: &str, activity_id: i64) -> anyhow::Result<Option<Vec<ProfilePoint>>> {
+pub async fn fetch_streams(
+    access_token: &str,
+    activity_id: i64,
+) -> anyhow::Result<Option<Vec<StreamPoint>>> {
     let client = reqwest::Client::new();
     let url = format!("https://www.strava.com/api/v3/activities/{activity_id}/streams");
     let resp = client
@@ -153,17 +185,25 @@ pub async fn fetch_streams(access_token: &str, activity_id: i64) -> anyhow::Resu
         return Ok(None);
     }
 
-    let profile: Vec<ProfilePoint> = ll
+    let points: Vec<StreamPoint> = ll
         .iter()
         .zip(alt.iter())
         .zip(dist.iter())
-        .map(|((coord, &ele), &d)| (d / 1000.0, ele, coord[0], coord[1]))
+        .map(|((coord, &ele), &d)| StreamPoint {
+            distance_km: d / 1000.0,
+            elevation: ele,
+            lat: coord[0],
+            lon: coord[1],
+        })
         .collect();
 
-    Ok(Some(profile))
+    Ok(Some(points))
 }
 
-pub async fn fetch_activity(access_token: &str, activity_id: i64) -> anyhow::Result<Option<StravaActivity>> {
+pub async fn fetch_activity(
+    access_token: &str,
+    activity_id: i64,
+) -> anyhow::Result<Option<StravaActivity>> {
     let client = reqwest::Client::new();
     let url = format!("https://www.strava.com/api/v3/activities/{activity_id}");
     let resp = client.get(&url).bearer_auth(access_token).send().await?;

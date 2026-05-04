@@ -3,6 +3,14 @@ use std::sync::Mutex;
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
+pub struct StravaTokens {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: i64,
+    pub athlete_id: i64,
+    pub athlete_name: Option<String>,
+}
+
 pub struct Db {
     conn: Mutex<Connection>,
 }
@@ -33,7 +41,18 @@ impl Db {
                 expires_at TEXT NOT NULL
             );
 
-            CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);"
+            CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+
+            CREATE TABLE IF NOT EXISTS strava_tokens (
+                user_id       INTEGER PRIMARY KEY,
+                access_token  TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at    INTEGER NOT NULL,
+                athlete_id    INTEGER NOT NULL,
+                athlete_name  TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_strava_athlete ON strava_tokens(athlete_id);"
         )?;
         Ok(())
     }
@@ -104,6 +123,62 @@ impl Db {
     pub fn cleanup_expired_sessions(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM sessions WHERE expires_at < datetime('now')", [])?;
+        Ok(())
+    }
+
+    // ── Strava tokens ──
+
+    pub fn save_strava_tokens(
+        &self, user_id: i64, access_token: &str, refresh_token: &str,
+        expires_at: i64, athlete_id: i64, athlete_name: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO strava_tokens (user_id, access_token, refresh_token, expires_at, athlete_id, athlete_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![user_id, access_token, refresh_token, expires_at, athlete_id, athlete_name],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_strava_tokens(&self, user_id: i64) -> Result<Option<StravaTokens>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT access_token, refresh_token, expires_at, athlete_id, athlete_name FROM strava_tokens WHERE user_id = ?1",
+            params![user_id],
+            |row| Ok(StravaTokens {
+                access_token: row.get(0)?, refresh_token: row.get(1)?,
+                expires_at: row.get(2)?, athlete_id: row.get(3)?, athlete_name: row.get(4)?,
+            }),
+        );
+        match result {
+            Ok(t) => Ok(Some(t)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn get_strava_tokens_by_athlete(&self, athlete_id: i64) -> Result<Option<(i64, StravaTokens)>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT user_id, access_token, refresh_token, expires_at, athlete_id, athlete_name
+             FROM strava_tokens WHERE athlete_id = ?1",
+            params![athlete_id],
+            |row| Ok((row.get(0)?, StravaTokens {
+                access_token: row.get(1)?, refresh_token: row.get(2)?,
+                expires_at: row.get(3)?, athlete_id: row.get(4)?, athlete_name: row.get(5)?,
+            })),
+        );
+        match result {
+            Ok(t) => Ok(Some(t)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn delete_strava_tokens(&self, user_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM strava_tokens WHERE user_id = ?1", params![user_id])?;
         Ok(())
     }
 }
