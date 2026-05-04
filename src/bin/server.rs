@@ -353,6 +353,9 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     background: var(--paper-2);
   }
 </style>
+<link rel="stylesheet" href="/static/themes.css">
+<script>document.documentElement.dataset.theme=localStorage.getItem('gpx-theme')||'golden-hour'</script>
+<script src="/static/theme-switcher.js" defer></script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -475,6 +478,31 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
 
 async fn form_page() -> Html<&'static str> {
     Html(FORM_HTML)
+}
+
+// ---------------------------------------------------------------------------
+// Theme switcher — served as static assets, referenced by all pages.
+// ---------------------------------------------------------------------------
+
+const THEMES_CSS: &str = include_str!("../../static/themes.css");
+const THEME_JS: &str = include_str!("../../static/theme-switcher.js");
+
+async fn static_themes_css() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(THEMES_CSS))
+        .expect("valid response")
+}
+
+async fn static_theme_js() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(THEME_JS))
+        .expect("valid response")
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,6 +1380,9 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   }}
   .download-link:hover {{ border-bottom-color: var(--ink); }}
 </style>
+<link rel="stylesheet" href="/static/themes.css">
+<script>document.documentElement.dataset.theme=localStorage.getItem('gpx-theme')||'golden-hour'</script>
+<script src="/static/theme-switcher.js" defer></script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -2775,6 +2806,8 @@ async fn main() {
         )
         .route("/static/recents.css", get(static_recents_css))
         .route("/static/recents.js", get(static_recents_js))
+        .route("/static/themes.css", get(static_themes_css))
+        .route("/static/theme-switcher.js", get(static_theme_js))
         .route("/toolkit/simplify", post(simplify_handler))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(merge_sessions)
