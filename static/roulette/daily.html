@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Défi du jour — Roulette Vélo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- CSS_PLACEHOLDER -->
+<link rel="stylesheet" href="/static/themes.css">
+<script>document.documentElement.dataset.theme=localStorage.getItem('gpx-theme')||'golden-hour'</script>
+<script src="/static/theme-switcher.js" defer></script>
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/toolkit" class="nav-link">Toolkit</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/stats" class="nav-link">Stats</a>
+  <a href="/col" class="nav-link">Col</a>
+  <a href="/trip" class="nav-link">Trip</a>
+  <a href="/roulette" class="nav-link active">Roulette</a>
+</nav>
+
+<main>
+  <header class="masthead">
+    <div class="edition">
+      <span>Roulette Vélo</span>
+      <span class="dot">&#x2726;</span>
+      <span>Défi du jour</span>
+    </div>
+    <h1 class="title">défi<span class="slash">/</span><span class="title-sub">jour</span></h1>
+    <p class="tagline">
+      Chaque jour, un parcours de 80 km autour de 10 grandes villes françaises.
+      Même seed, même parcours pour tout le monde.
+    </p>
+    <div class="rule-double"></div>
+  </header>
+
+  <div class="daily-grid" id="dailyGrid">
+    <p class="hint">Chargement…</p>
+  </div>
+
+  <div class="back-link">
+    <a href="/roulette" class="btn btn-ghost">Retour au générateur</a>
+  </div>
+</main>
+
+<script>
+(function(){
+  const cities = [
+    {id:'paris',name:'Paris'}, {id:'lyon',name:'Lyon'}, {id:'marseille',name:'Marseille'},
+    {id:'bordeaux',name:'Bordeaux'}, {id:'toulouse',name:'Toulouse'}, {id:'nantes',name:'Nantes'},
+    {id:'strasbourg',name:'Strasbourg'}, {id:'lille',name:'Lille'},
+    {id:'montpellier',name:'Montpellier'}, {id:'rennes',name:'Rennes'}
+  ];
+
+  const grid = document.getElementById('dailyGrid');
+
+  async function loadAll() {
+    grid.innerHTML = '';
+    for (const city of cities) {
+      const card = document.createElement('div');
+      card.className = 'daily-card';
+      card.innerHTML = '<h3 class="city-name">' + city.name + '</h3><div class="city-map" id="map-' + city.id + '"></div><div class="city-stats" id="stats-' + city.id + '">Chargement…</div>';
+      grid.appendChild(card);
+    }
+
+    for (const city of cities) {
+      try {
+        const resp = await fetch('/roulette/api/daily?city=' + city.id);
+        if (!resp.ok) { document.getElementById('stats-' + city.id).textContent = 'Erreur'; continue; }
+        const data = await resp.json();
+        document.getElementById('stats-' + city.id).innerHTML =
+          '<span>' + data.distance_km.toFixed(0) + ' km</span> · <span>' + data.dplus_m.toFixed(0) + ' m D+</span>';
+
+        const mapDiv = document.getElementById('map-' + city.id);
+        const m = L.map(mapDiv, { zoomControl: false, dragging: false, scrollWheelZoom: false, attributionControl: false });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 14 }).addTo(m);
+
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(data.gpx, 'text/xml');
+        const pts = xml.querySelectorAll('trkpt');
+        const latlngs = [];
+        pts.forEach(p => latlngs.push([parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))]));
+        if (latlngs.length > 1) {
+          L.polyline(latlngs, { color: '#2C6B7E', weight: 3 }).addTo(m);
+          m.fitBounds(L.latLngBounds(latlngs), { padding: [10, 10] });
+        }
+      } catch(e) {
+        document.getElementById('stats-' + city.id).textContent = 'Erreur';
+      }
+    }
+  }
+
+  loadAll();
+})();
+</script>
+
+<style>
+main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+.masthead { padding: 0.5rem 0 2rem; }
+.edition {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem;
+  font-family: 'Space Mono', monospace; font-size: 0.72rem;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--sepia);
+  border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink);
+  padding: 0.45rem 0.25rem; margin: 0 0 1.5rem;
+}
+.edition .dot { color: var(--red); font-size: 0.85rem; }
+.title {
+  font-family: 'Fraunces', serif; font-weight: 900;
+  font-size: clamp(3rem, 10vw, 6rem); line-height: 0.88;
+  margin: 0 0 1rem; letter-spacing: -0.04em;
+}
+.title .slash { color: var(--sepia-muted); font-weight: 400; font-size: 0.55em; font-style: italic; }
+.title .title-sub { font-style: italic; font-weight: 600; font-size: 0.5em; color: var(--red); }
+.tagline {
+  font-family: 'Fraunces', serif; font-size: 1rem; line-height: 1.45;
+  color: var(--ink-soft); max-width: 55ch;
+}
+
+.daily-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.daily-card {
+  border: 1.5px solid var(--sepia-muted);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper-alt);
+  transition: transform 0.15s;
+}
+.daily-card:hover { transform: translateY(-2px); }
+
+.city-name {
+  font-family: 'Fraunces', serif; font-weight: 800;
+  font-size: 1.15rem; margin: 0;
+  padding: 0.6rem 0.8rem 0.4rem;
+  border-bottom: 1px solid var(--sepia-muted);
+}
+
+.city-map { height: 180px; }
+
+.city-stats {
+  padding: 0.5rem 0.8rem;
+  font-family: 'Space Mono', monospace; font-size: 0.78rem;
+  color: var(--teal);
+}
+
+.back-link { margin-top: 2rem; }
+.hint { font-style: italic; color: var(--sepia); }
+</style>
+</body>
+</html>

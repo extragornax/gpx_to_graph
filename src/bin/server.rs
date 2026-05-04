@@ -377,6 +377,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/stats" class="nav-link">Stats</a>
     <a href="/col" class="nav-link">Col</a>
     <a href="/trip" class="nav-link">Trip</a>
+    <a href="/roulette" class="nav-link">Roulette</a>
   </nav>
 
   <div class="local-tabs">
@@ -2788,6 +2789,26 @@ async fn main() {
         },
     );
 
+    // --- Roulette service ---
+    let roulette_db_path = std::env::var("ROULETTE_DB_PATH").unwrap_or_else(|_| "data/roulette.db".into());
+    let roulette_brouter_url = std::env::var("BROUTER_URL").unwrap_or_else(|_| "https://brouter.de/brouter".into());
+    let roulette_db = gpx_to_graph::roulette::db::init(&roulette_db_path)
+        .expect("failed to open roulette db");
+    let roulette_state = gpx_to_graph::roulette::build_state(roulette_db, roulette_brouter_url);
+
+    {
+        let st = roulette_state.clone();
+        tokio::spawn(async move {
+            loop {
+                {
+                    let conn = st.db.lock().unwrap();
+                    let _ = gpx_to_graph::roulette::db::cleanup_old_sessions(&conn);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
     // --- Merge sessions ---
     let merge_sessions: MergeSessions = Arc::new(Mutex::new(HashMap::new()));
 
@@ -2818,7 +2839,8 @@ async fn main() {
         .nest("/stats", gpx_to_graph::strava_stats::router())
         .nest("/col", gpx_to_graph::col::router(col_state))
         .nest("/toolkit", gpx_to_graph::toolkit::router())
-        .nest("/trip", gpx_to_graph::trip::router(trip_state));
+        .nest("/trip", gpx_to_graph::trip::router(trip_state))
+        .nest("/roulette", gpx_to_graph::roulette::router(roulette_state));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {

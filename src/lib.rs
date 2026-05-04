@@ -21,6 +21,8 @@ pub mod toolkit;
 pub mod trip;
 #[cfg(feature = "server")]
 pub mod pow;
+#[cfg(feature = "server")]
+pub mod roulette;
 
 // ---------------------------------------------------------------------------
 // Public data types
