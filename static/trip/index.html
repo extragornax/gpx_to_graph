@@ -45,24 +45,10 @@
     <div class="rule-double"></div>
   </header>
 
-  <!-- Auth panel -->
-  <section id="authPanel" class="auth-panel">
-    <div class="auth-tabs">
-      <button class="auth-tab active" data-tab="login">Login</button>
-      <button class="auth-tab" data-tab="register">Register</button>
-    </div>
-    <form id="loginForm" class="auth-form">
-      <div class="field"><label>Username</label><input type="text" id="loginUser" required></div>
-      <div class="field"><label>Password</label><input type="password" id="loginPass" required></div>
-      <div class="auth-error" id="loginError"></div>
-      <button type="submit" class="auth-btn">Log in</button>
-    </form>
-    <form id="registerForm" class="auth-form" style="display:none">
-      <div class="field"><label>Username</label><input type="text" id="regUser" required minlength="2"></div>
-      <div class="field"><label>Password</label><input type="password" id="regPass" required minlength="6"></div>
-      <div class="auth-error" id="regError"></div>
-      <button type="submit" class="auth-btn">Create account</button>
-    </form>
+  <!-- Auth panel (redirects to centralized login) -->
+  <section id="authPanel" class="auth-panel" style="text-align:center;padding:40px 20px">
+    <p style="font-family:'Space Mono',monospace;font-size:0.85rem;color:var(--sepia);margin-bottom:16px">Connexion requise</p>
+    <a href="/auth?redirect=/trip" class="auth-btn" style="display:inline-block;text-decoration:none">Se connecter</a>
   </section>
 
   <!-- App (logged in) -->
@@ -142,66 +128,9 @@ const profileSvg = document.getElementById('profileSvg');
 const dayTableBody = document.querySelector('#dayTable tbody');
 const numDaysInput = document.getElementById('numDays');
 
-// ── PoW solver ──
-async function solvePow(c) {
-  var enc = new TextEncoder(), cb = enc.encode(c.challenge);
-  for (var n = 0; ; n++) {
-    var buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
-    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
-    var h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
-    var full = c.difficulty >> 3, rem = c.difficulty & 7, ok = true;
-    for (var i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
-    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
-      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
-  }
-}
-
 // ── Auth ──
-document.querySelectorAll('.auth-tab').forEach(function(tab) {
-  tab.addEventListener('click', function() {
-    document.querySelectorAll('.auth-tab').forEach(function(t) { t.classList.remove('active'); });
-    tab.classList.add('active');
-    document.getElementById('loginForm').style.display = tab.dataset.tab === 'login' ? '' : 'none';
-    document.getElementById('registerForm').style.display = tab.dataset.tab === 'register' ? '' : 'none';
-  });
-});
-
-document.getElementById('loginForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  var err = document.getElementById('loginError');
-  err.textContent = '';
-  try {
-    var c = await (await fetch(API + '/challenge')).json();
-    var pow = await solvePow(c);
-    var res = await fetch(API + '/login', {
-      method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value, pow: pow })
-    });
-    if (!res.ok) { err.textContent = await res.text(); return; }
-    var data = await res.json();
-    showApp(data.username);
-  } catch(ex) { err.textContent = 'Network error'; }
-});
-
-document.getElementById('registerForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  var err = document.getElementById('regError');
-  err.textContent = '';
-  try {
-    var c = await (await fetch(API + '/challenge')).json();
-    var pow = await solvePow(c);
-    var res = await fetch(API + '/register', {
-      method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('regUser').value, password: document.getElementById('regPass').value, pow: pow })
-    });
-    if (!res.ok) { err.textContent = await res.text(); return; }
-    var data = await res.json();
-    showApp(data.username);
-  } catch(ex) { err.textContent = 'Network error'; }
-});
-
 document.getElementById('logoutBtn').addEventListener('click', async function() {
-  await fetch(API + '/logout', { method: 'POST' });
+  await fetch('/auth/api/logout', { method: 'POST' });
   currentUser = null;
   authPanel.style.display = '';
   appPanel.style.display = 'none';
@@ -209,7 +138,7 @@ document.getElementById('logoutBtn').addEventListener('click', async function() 
 
 async function checkSession() {
   try {
-    var res = await fetch(API + '/me');
+    var res = await fetch('/auth/api/me');
     if (res.ok) {
       var data = await res.json();
       showApp(data.username);

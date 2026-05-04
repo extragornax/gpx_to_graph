@@ -22,6 +22,8 @@ pub mod trip;
 #[cfg(feature = "server")]
 pub mod pow;
 #[cfg(feature = "server")]
+pub mod auth;
+#[cfg(feature = "server")]
 pub mod roulette;
 
 // ---------------------------------------------------------------------------

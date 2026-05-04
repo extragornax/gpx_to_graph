@@ -1,11 +1,11 @@
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use super::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 use super::climb;
 use super::strava;
 use super::SharedState;
@@ -15,13 +15,7 @@ const INDEX_HTML: &str = include_str!("../../static/col/index.html");
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/", get(page_index))
-        // Auth
-        .route("/api/challenge", get(challenge))
-        .route("/api/register", post(register))
-        .route("/api/login", post(login))
-        .route("/api/logout", post(logout))
-        .route("/api/me", get(me))
-        .route("/api/share-id", post(regenerate_share_link))
+        .route("/api/share-id", get(get_share_link).post(regenerate_share_link))
         // Climbs (protected)
         .route("/api/upload/gpx", post(upload_gpx))
         .route("/api/climbs", get(list_climbs))
@@ -48,112 +42,25 @@ async fn page_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-// ── Auth ──
+// ── Share link (col-specific) ──
 
-async fn challenge() -> Json<crate::pow::Challenge> {
-    Json(crate::pow::generate())
-}
-
-#[derive(Deserialize)]
-struct AuthBody {
-    username: String,
-    password: String,
-    pow: crate::pow::PowSolution,
-}
-
-async fn register(
-    State(state): State<SharedState>,
-    Json(body): Json<AuthBody>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if !crate::pow::verify(&body.pow) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
-    }
-    if body.username.len() < 2 || body.password.len() < 6 {
-        return Err((StatusCode::BAD_REQUEST, "Username min 2 chars, password min 6 chars".into()));
-    }
-    if state.db.get_user_by_username(&body.username).map_err(err500)?.is_some() {
-        return Err((StatusCode::CONFLICT, "Username taken".into()));
-    }
-
-    let hash = auth::hash_password(&body.password).map_err(err500)?;
-    let share_id = auth::generate_share_id();
-    let user_id = state.db.create_user(&body.username, &hash, &share_id).map_err(err500)?;
-
-    let token = auth::generate_session_token();
-    state.db.create_session(&token, user_id).map_err(err500)?;
-
-    Ok((StatusCode::CREATED, session_headers(&token), Json(serde_json::json!({ "username": body.username, "share_id": share_id }))))
-}
-
-async fn login(
-    State(state): State<SharedState>,
-    Json(body): Json<AuthBody>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if !crate::pow::verify(&body.pow) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
-    }
-    let (user_id, hash) = state.db.get_user_by_username(&body.username)
-        .map_err(err500)?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
-
-    if !auth::verify_password(&body.password, &hash).map_err(err500)? {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
-    }
-
-    let token = auth::generate_session_token();
-    state.db.create_session(&token, user_id).map_err(err500)?;
-
-    Ok((session_headers(&token), Json(serde_json::json!({ "username": body.username }))))
-}
-
-async fn logout(
-    State(state): State<SharedState>,
-    user: CurrentUser,
-    headers: HeaderMap,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let _ = user;
-    if let Some(token) = extract_session_cookie(&headers) {
-        state.db.delete_session(token).map_err(err500)?;
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn me(
+async fn get_share_link(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (_, username) = state.db.get_user_by_id(user.0).map_err(err500)?
-        .ok_or((StatusCode::UNAUTHORIZED, "User not found".into()))?;
-    let share_id = state.db.get_share_id(user.0).map_err(err500)?
-        .ok_or((StatusCode::UNAUTHORIZED, "User not found".into()))?;
-    Ok(Json(serde_json::json!({ "username": username, "share_id": share_id })))
+    let share_id = state.db.ensure_profile(user.id).map_err(err500)?;
+    Ok(Json(serde_json::json!({ "share_id": share_id })))
 }
 
 async fn regenerate_share_link(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let new_id = auth::generate_share_id();
-    state.db.regenerate_share_id(user.0, &new_id).map_err(err500)?;
+    use rand::Rng;
+    let bytes: [u8; 8] = rand::rng().random();
+    let new_id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    state.db.regenerate_share_id(user.id, &new_id).map_err(err500)?;
     Ok(Json(serde_json::json!({ "share_id": new_id })))
-}
-
-fn session_headers(token: &str) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "set-cookie",
-        format!("session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
-            .parse().unwrap(),
-    );
-    headers
-}
-
-fn extract_session_cookie(headers: &HeaderMap) -> Option<&str> {
-    headers.get("cookie")?
-        .to_str().ok()?
-        .split(';')
-        .filter_map(|s| s.trim().strip_prefix("session="))
-        .next()
 }
 
 // ── Climbs ──
@@ -176,12 +83,12 @@ async fn upload_gpx(
         let detected = climb::detect_climbs(&gpx_profile.points, 50.0);
 
         for c in &detected {
-            let existing = state.db.find_nearby_climb(user.0, c.lat, c.lon, 0.5).map_err(err500)?;
+            let existing = state.db.find_nearby_climb(user.id, c.lat, c.lon, 0.5).map_err(err500)?;
 
             let climb_id = match existing {
                 Some(id) => id,
                 None => state.db.insert_climb(
-                    user.0, c.lat, c.lon, c.start_ele, c.end_ele, c.gain,
+                    user.id, c.lat, c.lon, c.start_ele, c.end_ele, c.gain,
                     c.end_km - c.start_km, c.gradient, date,
                 ).map_err(err500)?,
             };
@@ -198,7 +105,7 @@ async fn list_climbs(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<Vec<super::db::ClimbRecord>>, (StatusCode, String)> {
-    state.db.get_climbs(user.0).map(Json).map_err(err500)
+    state.db.get_climbs(user.id).map(Json).map_err(err500)
 }
 
 async fn get_climb(
@@ -206,7 +113,7 @@ async fn get_climb(
     user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let climb = state.db.get_climb(user.0, id).map_err(err500)?
+    let climb = state.db.get_climb(user.id, id).map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Climb not found".into()))?;
     let attempts = state.db.get_attempts(id).map_err(err500)?;
     Ok(Json(serde_json::json!({ "climb": climb, "attempts": attempts })))
@@ -223,7 +130,7 @@ async fn rename_climb(
     Path(id): Path<i64>,
     Json(body): Json<RenameBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let updated = state.db.rename_climb(user.0, id, &body.name).map_err(err500)?;
+    let updated = state.db.rename_climb(user.id, id, &body.name).map_err(err500)?;
     if updated { Ok(StatusCode::NO_CONTENT) } else { Err((StatusCode::NOT_FOUND, "Not found".into())) }
 }
 
@@ -231,14 +138,14 @@ async fn get_stats(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<super::db::Stats>, (StatusCode, String)> {
-    state.db.get_stats(user.0).map(Json).map_err(err500)
+    state.db.get_stats(user.id).map(Json).map_err(err500)
 }
 
 async fn reset_data(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    state.db.clear_user_data(user.0).map_err(err500)?;
+    state.db.clear_user_data(user.id).map_err(err500)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -276,7 +183,7 @@ async fn strava_callback(
     };
 
     state.db.save_strava_tokens(
-        user.0, &token.access_token, &token.refresh_token,
+        user.id, &token.access_token, &token.refresh_token,
         token.expires_at, token.athlete.id, name.as_deref(),
     ).map_err(err500)?;
 
@@ -288,7 +195,7 @@ async fn strava_status(
     user: CurrentUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let configured = state.strava.is_some();
-    let tokens = state.db.get_strava_tokens(user.0).map_err(err500)?;
+    let tokens = state.db.get_strava_tokens(user.id).map_err(err500)?;
 
     Ok(Json(serde_json::json!({
         "configured": configured,
@@ -301,7 +208,7 @@ async fn strava_disconnect(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    state.db.delete_strava_tokens(user.0).map_err(err500)?;
+    state.db.delete_strava_tokens(user.id).map_err(err500)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -311,11 +218,11 @@ async fn strava_sync(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let token = get_valid_token(&state, user.0).await?;
+    let token = get_valid_token(&state, user.id).await?;
 
     tokio::spawn({
         let state = state.clone();
-        let user_id = user.0;
+        let user_id = user.id;
         async move {
             if let Err(e) = run_sync(&state, user_id, &token).await {
                 tracing::error!(user_id, "background sync failed: {e}");

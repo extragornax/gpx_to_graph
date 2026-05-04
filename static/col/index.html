@@ -160,19 +160,11 @@
     </div>
   </header>
 
-  <!-- Auth gate -->
+  <!-- Auth gate (redirects to centralized login) -->
   <div class="auth-gate" id="auth-gate">
     <h2>C<em style="font-family:Fraunces,serif;font-style:italic;font-weight:400;color:var(--teal)">o</em>l</h2>
-    <div class="tabs">
-      <div class="tab active" data-tab="login">Log in</div>
-      <div class="tab" data-tab="register">Register</div>
-    </div>
-    <form class="auth-form" id="auth-form">
-      <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
-      <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
-      <button class="btn" type="submit" id="auth-submit">Log in</button>
-      <div class="error hidden" id="auth-error"></div>
-    </form>
+    <p style="text-align:center;font-family:'Space Mono',monospace;font-size:0.85rem;color:var(--sepia)">Connexion requise</p>
+    <a href="/auth?redirect=/col" class="btn" style="display:block;text-align:center;margin-top:16px;text-decoration:none">Se connecter</a>
   </div>
 
   <!-- App (hidden until authenticated) -->
@@ -234,77 +226,20 @@ let markers = null;
 let climbs = [];
 let currentSort = 'gain';
 let currentUser = null;
-let authMode = 'login';
-
 const $  = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
 const COL_BASE = '/col';
-// Detect public profile mode from URL
 const publicMatch = location.pathname.match(/\/p\/([^/]+)$/);
 const publicShareId = publicMatch ? decodeURIComponent(publicMatch[1]) : null;
 
-// ── PoW solver ──
-async function solvePow(c) {
-  const enc = new TextEncoder(), cb = enc.encode(c.challenge);
-  for (let n = 0; ; n++) {
-    const buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
-    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
-    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
-    const full = c.difficulty >> 3, rem = c.difficulty & 7;
-    let ok = true;
-    for (let i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
-    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
-      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
-  }
-}
-
-// ── Auth ──
-
-$$('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    $$('.tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    authMode = tab.dataset.tab;
-    $('#auth-submit').textContent = authMode === 'login' ? 'Log in' : 'Register';
-    $('#auth-password').autocomplete = authMode === 'login' ? 'current-password' : 'new-password';
-    $('#auth-error').classList.add('hidden');
-  });
-});
-
-$('#auth-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const username = $('#auth-username').value.trim();
-  const password = $('#auth-password').value;
-  if (!username || !password) return;
-
-  const errEl = $('#auth-error');
-  errEl.classList.add('hidden');
-
-  const chalRes = await fetch(`${COL_BASE}/api/challenge`);
-  const pow = await solvePow(await chalRes.json());
-
-  const endpoint = authMode === 'login' ? `${COL_BASE}/api/login` : `${COL_BASE}/api/register`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, pow }),
-  });
-
-  if (res.ok) {
-    const data = await res.json();
-    showApp(data.username, data.share_id);
-  } else {
-    errEl.textContent = await res.text();
-    errEl.classList.remove('hidden');
-  }
-});
-
 async function checkSession() {
-  const res = await fetch(`${COL_BASE}/api/me`);
+  const res = await fetch('/auth/api/me');
   if (res.ok) {
     const data = await res.json();
-    showApp(data.username, data.share_id);
+    const shareRes = await fetch(`${COL_BASE}/api/share-id`);
+    const shareId = shareRes.ok ? (await shareRes.json()).share_id : null;
+    showApp(data.username, shareId);
   } else {
     $('#auth-gate').classList.remove('hidden');
     $('#app').classList.add('hidden');
@@ -347,7 +282,7 @@ function showApp(username, shareId) {
     }
   });
   $('#logout-btn').addEventListener('click', async () => {
-    await fetch(`${COL_BASE}/api/logout`, { method: 'POST' });
+    await fetch('/auth/api/logout', { method: 'POST' });
     location.reload();
   });
   initMap();

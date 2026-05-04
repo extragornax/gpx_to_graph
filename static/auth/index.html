@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connexion — GPX Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!-- CSS_PLACEHOLDER -->
+</head>
+<body>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX&nbsp;Tools</a>
+  <a href="/toolkit" class="nav-link">Toolkit</a>
+  <a href="/meteo" class="nav-link">Météo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/trace" class="nav-link">Trace</a>
+  <a href="/col" class="nav-link">Cols</a>
+  <a href="/trip" class="nav-link">Trip</a>
+  <a href="/roulette" class="nav-link">Roulette</a>
+  <a href="/stats" class="nav-link">Stats</a>
+</nav>
+
+<main class="auth-container">
+  <div class="auth-card" id="auth-card">
+    <h1>Connexion</h1>
+    <p class="auth-subtitle">Un seul compte pour tous les outils</p>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="login">Se connecter</div>
+      <div class="tab" data-tab="register">Créer un compte</div>
+    </div>
+
+    <form class="auth-form" id="auth-form">
+      <input type="text" id="auth-username" placeholder="Nom d'utilisateur" autocomplete="username" required minlength="2">
+      <input type="password" id="auth-password" placeholder="Mot de passe" autocomplete="current-password" required minlength="6">
+      <button type="submit" class="btn" id="auth-submit">Se connecter</button>
+      <div class="error hidden" id="auth-error"></div>
+      <div class="pow-status hidden" id="pow-status">Vérification en cours…</div>
+    </form>
+  </div>
+
+  <div class="auth-card hidden" id="logged-card">
+    <h1>Connecté</h1>
+    <p class="auth-subtitle">Bienvenue, <strong id="display-username"></strong></p>
+    <div class="logged-actions">
+      <a href="/" class="btn">Accueil</a>
+      <button class="btn btn-outline" id="logout-btn">Se déconnecter</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const AUTH_BASE = '/auth';
+
+const params = new URLSearchParams(location.search);
+const redirectTo = params.get('redirect') || '/';
+
+let authMode = 'login';
+
+async function solvePow(c) {
+  const enc = new TextEncoder(), cb = enc.encode(c.challenge);
+  for (let n = 0; ; n++) {
+    const buf = new ArrayBuffer(cb.length + 8), v = new Uint8Array(buf);
+    v.set(cb); new DataView(buf).setUint32(cb.length, n, true);
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+    const full = c.difficulty >> 3, rem = c.difficulty & 7;
+    let ok = true;
+    for (let i = 0; i < full; i++) if (h[i] !== 0) { ok = false; break; }
+    if (ok && (rem === 0 || (h[full] >> (8 - rem)) === 0))
+      return { challenge: c.challenge, timestamp: c.timestamp, signature: c.signature, nonce: n };
+  }
+}
+
+$$('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    $$('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    authMode = tab.dataset.tab;
+    $('#auth-submit').textContent = authMode === 'login' ? 'Se connecter' : 'Créer mon compte';
+    $('#auth-password').autocomplete = authMode === 'login' ? 'current-password' : 'new-password';
+    $('#auth-error').classList.add('hidden');
+  });
+});
+
+$('#auth-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const username = $('#auth-username').value.trim();
+  const password = $('#auth-password').value;
+  if (!username || !password) return;
+
+  const errEl = $('#auth-error');
+  errEl.classList.add('hidden');
+  $('#pow-status').classList.remove('hidden');
+  $('#auth-submit').disabled = true;
+
+  try {
+    const chalRes = await fetch(`${AUTH_BASE}/api/challenge`);
+    const pow = await solvePow(await chalRes.json());
+    $('#pow-status').classList.add('hidden');
+
+    const endpoint = authMode === 'login' ? `${AUTH_BASE}/api/login` : `${AUTH_BASE}/api/register`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, pow }),
+    });
+
+    if (res.ok) {
+      location.href = redirectTo;
+    } else {
+      errEl.textContent = await res.text();
+      errEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errEl.textContent = 'Erreur réseau';
+    errEl.classList.remove('hidden');
+  } finally {
+    $('#pow-status').classList.add('hidden');
+    $('#auth-submit').disabled = false;
+  }
+});
+
+$('#logout-btn').addEventListener('click', async () => {
+  await fetch(`${AUTH_BASE}/api/logout`, { method: 'POST' });
+  $('#logged-card').classList.add('hidden');
+  $('#auth-card').classList.remove('hidden');
+});
+
+async function checkSession() {
+  try {
+    const res = await fetch(`${AUTH_BASE}/api/me`);
+    if (res.ok) {
+      const data = await res.json();
+      $('#display-username').textContent = data.username;
+      $('#auth-card').classList.add('hidden');
+      $('#logged-card').classList.remove('hidden');
+    }
+  } catch (_) {}
+}
+
+checkSession();
+</script>
+</body>
+</html>

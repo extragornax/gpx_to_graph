@@ -378,6 +378,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/col" class="nav-link">Col</a>
     <a href="/trip" class="nav-link">Trip</a>
     <a href="/roulette" class="nav-link">Roulette</a>
+    <a href="/auth" class="nav-link" style="margin-left:auto">Compte</a>
   </nav>
 
   <div class="local-tabs">
@@ -2809,6 +2810,19 @@ async fn main() {
         });
     }
 
+    // --- Auth service ---
+    let auth_db_path = std::env::var("AUTH_DB_PATH").unwrap_or_else(|_| "data/auth.db".into());
+    let auth_state = gpx_to_graph::auth::build_state(&auth_db_path);
+    {
+        let auth_cleanup = auth_state.clone();
+        tokio::spawn(async move {
+            loop {
+                let _ = auth_cleanup.cleanup_expired_sessions();
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
     // --- Merge sessions ---
     let merge_sessions: MergeSessions = Arc::new(Mutex::new(HashMap::new()));
 
@@ -2840,7 +2854,9 @@ async fn main() {
         .nest("/col", gpx_to_graph::col::router(col_state))
         .nest("/toolkit", gpx_to_graph::toolkit::router())
         .nest("/trip", gpx_to_graph::trip::router(trip_state))
-        .nest("/roulette", gpx_to_graph::roulette::router(roulette_state));
+        .nest("/roulette", gpx_to_graph::roulette::router(roulette_state))
+        .nest("/auth", gpx_to_graph::auth::router())
+        .layer(axum::Extension(auth_state));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {

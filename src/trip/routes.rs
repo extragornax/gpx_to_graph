@@ -1,13 +1,13 @@
 use axum::extract::{Multipart, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{get, post, put};
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use axum::response::Html;
 use serde::Deserialize;
 use std::io::Cursor;
 
-use super::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 use super::SharedState;
 
 const INDEX_HTML: &str = include_str!("../../static/trip/index.html");
@@ -17,11 +17,6 @@ const TRIP_CSS: &str = include_str!("../../static/trip/app.css");
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/", get(page_index))
-        .route("/api/challenge", get(challenge))
-        .route("/api/register", post(register))
-        .route("/api/login", post(login))
-        .route("/api/logout", post(logout))
-        .route("/api/me", get(me))
         .route("/api/trips", get(list_trips).post(create_trip))
         .route("/api/trips/{id}", get(get_trip).delete(delete_trip))
         .route("/api/trips/{id}/name", put(rename_trip))
@@ -34,126 +29,6 @@ async fn page_index() -> Html<String> {
         "<!-- CSS_PLACEHOLDER -->",
         &format!("<style>{BASE_CSS}\n{TRIP_CSS}</style>"),
     ))
-}
-
-// ── Auth ──
-
-async fn challenge() -> Json<crate::pow::Challenge> {
-    Json(crate::pow::generate())
-}
-
-#[derive(Deserialize)]
-struct AuthBody {
-    username: String,
-    password: String,
-    pow: crate::pow::PowSolution,
-}
-
-async fn register(
-    State(state): State<SharedState>,
-    Json(body): Json<AuthBody>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if !crate::pow::verify(&body.pow) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
-    }
-    if body.username.len() < 2 || body.password.len() < 6 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Username min 2 chars, password min 6 chars".into(),
-        ));
-    }
-    if state
-        .db
-        .get_user_by_username(&body.username)
-        .map_err(err500)?
-        .is_some()
-    {
-        return Err((StatusCode::CONFLICT, "Username taken".into()));
-    }
-
-    let hash = auth::hash_password(&body.password).map_err(err500)?;
-    let user_id = state
-        .db
-        .create_user(&body.username, &hash)
-        .map_err(err500)?;
-    let token = auth::generate_session_token();
-    state.db.create_session(&token, user_id).map_err(err500)?;
-
-    Ok((
-        StatusCode::CREATED,
-        session_headers(&token),
-        Json(serde_json::json!({ "username": body.username })),
-    ))
-}
-
-async fn login(
-    State(state): State<SharedState>,
-    Json(body): Json<AuthBody>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if !crate::pow::verify(&body.pow) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
-    }
-    let (user_id, hash) = state
-        .db
-        .get_user_by_username(&body.username)
-        .map_err(err500)?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
-
-    if !auth::verify_password(&body.password, &hash).map_err(err500)? {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
-    }
-
-    let token = auth::generate_session_token();
-    state.db.create_session(&token, user_id).map_err(err500)?;
-
-    Ok((
-        session_headers(&token),
-        Json(serde_json::json!({ "username": body.username })),
-    ))
-}
-
-async fn logout(
-    State(state): State<SharedState>,
-    _user: CurrentUser,
-    headers: HeaderMap,
-) -> Result<StatusCode, (StatusCode, String)> {
-    if let Some(token) = extract_session_cookie(&headers) {
-        state.db.delete_session(token).map_err(err500)?;
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn me(
-    State(state): State<SharedState>,
-    user: CurrentUser,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let username = state
-        .db
-        .get_user_by_id(user.0)
-        .map_err(err500)?
-        .ok_or((StatusCode::UNAUTHORIZED, "User not found".into()))?;
-    Ok(Json(serde_json::json!({ "username": username })))
-}
-
-fn session_headers(token: &str) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "set-cookie",
-        format!("trip_session={token}; Path=/trip; HttpOnly; SameSite=Lax; Max-Age=2592000")
-            .parse()
-            .unwrap(),
-    );
-    headers
-}
-
-fn extract_session_cookie(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get("cookie")?
-        .to_str()
-        .ok()?
-        .split(';')
-        .filter_map(|s| s.trim().strip_prefix("trip_session="))
-        .next()
 }
 
 // ── Trips ──
@@ -203,7 +78,7 @@ async fn create_trip(
 
     let trip_id = state
         .db
-        .create_trip(user.0, &name, &gpx_text, &points_json, &boundaries_json)
+        .create_trip(user.id, &name, &gpx_text, &points_json, &boundaries_json)
         .map_err(err500)?;
 
     Ok((
@@ -216,7 +91,7 @@ async fn list_trips(
     State(state): State<SharedState>,
     user: CurrentUser,
 ) -> Result<Json<Vec<super::db::TripSummary>>, (StatusCode, String)> {
-    state.db.list_trips(user.0).map(Json).map_err(err500)
+    state.db.list_trips(user.id).map(Json).map_err(err500)
 }
 
 async fn get_trip(
@@ -226,7 +101,7 @@ async fn get_trip(
 ) -> Result<Json<super::db::TripDetail>, (StatusCode, String)> {
     state
         .db
-        .get_trip(user.0, id)
+        .get_trip(user.id, id)
         .map_err(err500)?
         .map(Json)
         .ok_or((StatusCode::NOT_FOUND, "Trip not found".into()))
@@ -245,7 +120,7 @@ async fn rename_trip(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let ok = state
         .db
-        .update_trip_name(user.0, id, &body.name)
+        .update_trip_name(user.id, id, &body.name)
         .map_err(err500)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
@@ -268,7 +143,7 @@ async fn update_days(
     let json = serde_json::to_string(&body.boundaries).map_err(err500)?;
     let ok = state
         .db
-        .update_boundaries(user.0, id, &json)
+        .update_boundaries(user.id, id, &json)
         .map_err(err500)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
@@ -282,7 +157,7 @@ async fn delete_trip(
     user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let ok = state.db.delete_trip(user.0, id).map_err(err500)?;
+    let ok = state.db.delete_trip(user.id, id).map_err(err500)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -297,7 +172,7 @@ async fn download_day_gpx(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let (points_json, boundaries_json, name) = state
         .db
-        .get_trip_for_gpx(user.0, id)
+        .get_trip_for_gpx(user.id, id)
         .map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Trip not found".into()))?;
 

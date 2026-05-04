@@ -1,4 +1,3 @@
-pub mod auth;
 pub mod climb;
 pub mod db;
 pub mod routes;
