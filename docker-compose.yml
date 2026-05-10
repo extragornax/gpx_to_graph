@@ -4,21 +4,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     environment:
       - PORT=3000
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
-    volumes:
-      - gpx_data:/data
-
-  gpx-green:
-    image: gpx-app:latest
-    build: .
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3001:3001"
-    environment:
-      - PORT=3001
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
     volumes:
       - gpx_data:/data
