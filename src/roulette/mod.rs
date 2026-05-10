@@ -19,7 +19,7 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/daily", get(handlers::daily_handler))
         .route("/api/geocode", get(handlers::geocode_handler))
         .with_state(state)
-        .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
 }
 

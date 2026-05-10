@@ -3,7 +3,7 @@ pub mod db;
 pub mod routes;
 
 use std::sync::Arc;
-use axum::Router;
+use axum::{Router, extract::DefaultBodyLimit};
 
 pub struct AppState {
     pub db: db::Db,
@@ -12,5 +12,7 @@ pub struct AppState {
 pub type SharedState = Arc<AppState>;
 
 pub fn router(state: SharedState) -> Router {
-    routes::router().with_state(state)
+    routes::router()
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        .with_state(state)
 }

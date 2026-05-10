@@ -6,6 +6,7 @@ pub mod state;
 
 use axum::response::Html;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use state::{AppState, SharedState};
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/", get(index))
         .nest("/api", routes::router())
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
