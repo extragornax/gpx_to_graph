@@ -114,6 +114,14 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,800;1,9..144,400;1,9..144,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/recents.css">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e1424">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GPX Tools">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root {
     --paper: #f2e9d4; --paper-2: #e8dec0; --ink: #0e1424; --ink-soft: #2a2f3e;
@@ -475,6 +483,13 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
   if (gpxInput) enableDropZone(gpxInput);
 </script>
 <script src="/static/recents.js" defer></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(){});
+    });
+  }
+</script>
 </body>
 </html>"##;
 
@@ -504,6 +519,62 @@ async fn static_theme_js() -> Response {
         .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
         .header(header::CACHE_CONTROL, "public, max-age=300")
         .body(Body::from(THEME_JS))
+        .expect("valid response")
+}
+
+// ---------------------------------------------------------------------------
+// PWA assets — manifest, service worker, icons, Android asset links.
+// ---------------------------------------------------------------------------
+
+const PWA_MANIFEST: &str = include_str!("../../static/manifest.json");
+const PWA_SW: &str = include_str!("../../static/sw.js");
+const PWA_ICON_192: &[u8] = include_bytes!("../../static/icon-192.png");
+const PWA_ICON_512: &[u8] = include_bytes!("../../static/icon-512.png");
+const PWA_ASSETLINKS: &str = include_str!("../../static/.well-known/assetlinks.json");
+
+async fn pwa_manifest() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/manifest+json")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(PWA_MANIFEST))
+        .expect("valid response")
+}
+
+async fn pwa_sw() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .header("Service-Worker-Allowed", "/")
+        .body(Body::from(PWA_SW))
+        .expect("valid response")
+}
+
+async fn pwa_icon_192() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/png")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(PWA_ICON_192))
+        .expect("valid response")
+}
+
+async fn pwa_icon_512() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/png")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(PWA_ICON_512))
+        .expect("valid response")
+}
+
+async fn pwa_assetlinks() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(PWA_ASSETLINKS))
         .expect("valid response")
 }
 
@@ -2842,6 +2913,11 @@ async fn main() {
         .route("/static/recents.js", get(static_recents_js))
         .route("/static/themes.css", get(static_themes_css))
         .route("/static/theme-switcher.js", get(static_theme_js))
+        .route("/manifest.json", get(pwa_manifest))
+        .route("/sw.js", get(pwa_sw))
+        .route("/icon-192.png", get(pwa_icon_192))
+        .route("/icon-512.png", get(pwa_icon_512))
+        .route("/.well-known/assetlinks.json", get(pwa_assetlinks))
         .route("/toolkit/simplify", post(simplify_handler))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(merge_sessions)
