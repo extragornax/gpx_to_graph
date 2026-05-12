@@ -34,6 +34,10 @@ services:
       - TWA_APP_VERSION_CODE=${TWA_APP_VERSION_CODE:-1}
       - TWA_KEY_COUNTRY=${TWA_KEY_COUNTRY:-FR}
       - TWA_SCHEME=${TWA_SCHEME:-https}
+      # Bypass Cloudflare / WAF by fetching the manifest from gpx-blue
+      # directly inside the compose network. Override if your backend
+      # service is named or exposed differently.
+      - TWA_MANIFEST_URL=${TWA_MANIFEST_URL:-http://gpx-blue:3000/manifest.json}
     volumes:
       - apk_data:/data/apk
       - apk_keystore:/keystore

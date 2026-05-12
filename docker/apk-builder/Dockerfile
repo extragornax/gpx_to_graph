@@ -21,7 +21,8 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
  && sdkmanager --install \
         "platform-tools" \
         "platforms;android-34" \
-        "build-tools;34.0.0" >/dev/null
+        "build-tools;34.0.0" >/dev/null \
+ && ln -s ${ANDROID_HOME}/cmdline-tools/latest ${ANDROID_HOME}/tools
 
 WORKDIR /builder
 COPY package.json ./

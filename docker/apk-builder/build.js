@@ -20,6 +20,7 @@ const {
   TwaManifest,
   ConsoleLog,
 } = require('@bubblewrap/core');
+const { Color } = require('@ctrl/tinycolor');
 
 function required(key) {
   const v = process.env[key];
@@ -44,6 +45,7 @@ const TWA_APP_VERSION = process.env.TWA_APP_VERSION || '1.0.0';
 const TWA_APP_VERSION_CODE = parseInt(process.env.TWA_APP_VERSION_CODE || '1', 10);
 const TWA_KEY_COUNTRY = process.env.TWA_KEY_COUNTRY || 'FR';
 const TWA_SCHEME = (process.env.TWA_SCHEME || 'https').replace(/[^a-z]/g, '');
+const TWA_MANIFEST_URL = process.env.TWA_MANIFEST_URL || '';
 
 const OUTPUT_DIR = process.env.OUTPUT_DIR || '/data/apk';
 const KEYSTORE_DIR = process.env.KEYSTORE_DIR || '/keystore';
@@ -52,8 +54,15 @@ const WORK_DIR = process.env.WORK_DIR || '/work';
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
+    const opts = {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Bubblewrap apk-builder',
+        Accept: 'application/manifest+json, application/json, */*',
+      },
+    };
     lib
-      .get(url, (res) => {
+      .get(url, opts, (res) => {
         if (res.statusCode !== 200) {
           reject(new Error(`GET ${url} -> ${res.statusCode}`));
           return;
@@ -84,7 +93,8 @@ async function main() {
   const gradle = new GradleWrapper(process, sdkTools);
   const keyTool = new KeyTool(jdkHelper, log);
 
-  const manifestUrl = `${TWA_SCHEME}://${TWA_DOMAIN}/manifest.json`;
+  const manifestUrl =
+    TWA_MANIFEST_URL || `${TWA_SCHEME}://${TWA_DOMAIN}/manifest.json`;
   log.info(`fetching ${manifestUrl}`);
   const webManifest = await fetchJson(manifestUrl);
 
@@ -98,9 +108,9 @@ async function main() {
   twaManifest.host = TWA_DOMAIN;
   twaManifest.name = TWA_APP_NAME;
   twaManifest.launcherName = TWA_APP_NAME_SHORT;
-  twaManifest.themeColor = TWA_THEME_COLOR;
-  twaManifest.navigationColor = TWA_THEME_COLOR;
-  twaManifest.backgroundColor = TWA_BG_COLOR;
+  twaManifest.themeColor = new Color(TWA_THEME_COLOR);
+  twaManifest.navigationColor = new Color(TWA_THEME_COLOR);
+  twaManifest.backgroundColor = new Color(TWA_BG_COLOR);
   twaManifest.appVersionName = TWA_APP_VERSION;
   twaManifest.appVersion = TWA_APP_VERSION;
   twaManifest.appVersionCode = TWA_APP_VERSION_CODE;
