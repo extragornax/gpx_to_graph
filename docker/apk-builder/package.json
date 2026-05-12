@@ -1,0 +1,9 @@
+{
+  "name": "apk-builder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "@bubblewrap/core": "^1.21.0"
+  }
+}

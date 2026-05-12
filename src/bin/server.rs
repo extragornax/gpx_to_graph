@@ -387,6 +387,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/trip" class="nav-link">Trip</a>
     <a href="/roulette" class="nav-link">Roulette</a>
     <a href="/auth" class="nav-link" style="margin-left:auto">Compte</a>
+    <a id="android-download" href="/download/android.apk" class="nav-link" hidden style="border:1px solid var(--ink);padding:.25rem .6rem;">Android APK</a>
   </nav>
 
   <div class="local-tabs">
@@ -489,6 +490,16 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(){});
     });
   }
+  // Reveal the Android APK download link only when the apk-builder has produced one.
+  fetch('/download/android/status', { cache: 'no-store' })
+    .then(function(r){ return r.ok ? r.json() : { available: false }; })
+    .then(function(s){
+      if (s && s.available) {
+        var a = document.getElementById('android-download');
+        if (a) a.hidden = false;
+      }
+    })
+    .catch(function(){});
 </script>
 </body>
 </html>"##;
@@ -569,12 +580,62 @@ async fn pwa_icon_512() -> Response {
         .expect("valid response")
 }
 
+fn apk_dir() -> PathBuf {
+    std::env::var("APK_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/data/apk"))
+}
+
 async fn pwa_assetlinks() -> Response {
+    if let Ok(body) = tokio::fs::read(apk_dir().join("assetlinks.json")).await {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CACHE_CONTROL, "public, max-age=300")
+            .body(Body::from(body))
+            .expect("valid response");
+    }
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::CACHE_CONTROL, "public, max-age=300")
         .body(Body::from(PWA_ASSETLINKS))
+        .expect("valid response")
+}
+
+async fn download_android_apk() -> Response {
+    let path = apk_dir().join("app-release-signed.apk");
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/vnd.android.package-archive")
+            .header(
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"gpx-tools.apk\"",
+            )
+            .header(header::CACHE_CONTROL, "public, max-age=300")
+            .body(Body::from(bytes))
+            .expect("valid response"),
+        Err(_) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(Body::from(
+                "Android APK not built yet. Run the apk-builder service.",
+            ))
+            .expect("valid response"),
+    }
+}
+
+async fn download_android_status() -> Response {
+    let exists = tokio::fs::metadata(apk_dir().join("app-release-signed.apk"))
+        .await
+        .is_ok();
+    let body = if exists { "{\"available\":true}" } else { "{\"available\":false}" };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from(body))
         .expect("valid response")
 }
 
@@ -2918,6 +2979,8 @@ async fn main() {
         .route("/icon-192.png", get(pwa_icon_192))
         .route("/icon-512.png", get(pwa_icon_512))
         .route("/.well-known/assetlinks.json", get(pwa_assetlinks))
+        .route("/download/android.apk", get(download_android_apk))
+        .route("/download/android/status", get(download_android_status))
         .route("/toolkit/simplify", post(simplify_handler))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(merge_sessions)
