@@ -20,7 +20,7 @@ const {
   TwaManifest,
   ConsoleLog,
 } = require('@bubblewrap/core');
-const { Color } = require('@ctrl/tinycolor');
+const Color = require('color');
 
 function required(key) {
   const v = process.env[key];
@@ -34,7 +34,10 @@ function required(key) {
 const TWA_DOMAIN = required('TWA_DOMAIN');
 const TWA_PACKAGE_ID = required('TWA_PACKAGE_ID');
 const TWA_KEYSTORE_PASSWORD = required('TWA_KEYSTORE_PASSWORD');
-const TWA_KEY_PASSWORD = required('TWA_KEY_PASSWORD');
+// PKCS12 keystores (JDK 9+ default) only honor a single password. Allow the
+// caller to set TWA_KEY_PASSWORD for clarity, but always force it equal to
+// the keystore password so key extraction works during signing.
+const TWA_KEY_PASSWORD = TWA_KEYSTORE_PASSWORD;
 
 const TWA_APP_NAME = process.env.TWA_APP_NAME || 'GPX Tools';
 const TWA_APP_NAME_SHORT = process.env.TWA_APP_NAME_SHORT || 'GPX';
@@ -90,7 +93,7 @@ async function main() {
   const config = new Config(process.env.JAVA_HOME, process.env.ANDROID_HOME);
   const jdkHelper = new JdkHelper(process, config);
   const sdkTools = await AndroidSdkTools.create(process, config, jdkHelper, log);
-  const gradle = new GradleWrapper(process, sdkTools);
+  const gradle = new GradleWrapper(process, sdkTools, WORK_DIR);
   const keyTool = new KeyTool(jdkHelper, log);
 
   const manifestUrl =
@@ -104,13 +107,19 @@ async function main() {
   );
   const twaManifest = await TwaManifest.fromWebManifestJson(startUrl, webManifest);
 
+  // Bubblewrap's TwaGenerator re-fetches the web manifest from `webManifestUrl`
+  // during project generation. If that URL goes through a CDN/WAF that returns
+  // HTML (e.g. a Cloudflare challenge), JSON.parse blows up. Point it at the
+  // same URL we already used so we keep reusing the in-network bypass.
+  twaManifest.webManifestUrl = new URL(manifestUrl);
+
   twaManifest.packageId = TWA_PACKAGE_ID;
   twaManifest.host = TWA_DOMAIN;
   twaManifest.name = TWA_APP_NAME;
   twaManifest.launcherName = TWA_APP_NAME_SHORT;
-  twaManifest.themeColor = new Color(TWA_THEME_COLOR);
-  twaManifest.navigationColor = new Color(TWA_THEME_COLOR);
-  twaManifest.backgroundColor = new Color(TWA_BG_COLOR);
+  twaManifest.themeColor = Color(TWA_THEME_COLOR);
+  twaManifest.navigationColor = Color(TWA_THEME_COLOR);
+  twaManifest.backgroundColor = Color(TWA_BG_COLOR);
   twaManifest.appVersionName = TWA_APP_VERSION;
   twaManifest.appVersion = TWA_APP_VERSION;
   twaManifest.appVersionCode = TWA_APP_VERSION_CODE;

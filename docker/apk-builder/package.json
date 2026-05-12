@@ -5,6 +5,6 @@
   "type": "commonjs",
   "dependencies": {
     "@bubblewrap/core": "^1.21.0",
-    "@ctrl/tinycolor": "^3.6.0"
+    "color": "^4.2.3"
   }
 }
