@@ -501,6 +501,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     })
     .catch(function(){});
 </script>
+<img src="https://tally.extragornax.fr/t/gpx" alt="" width="1" height="1" style="position:absolute;opacity:0" referrerpolicy="no-referrer-when-downgrade" />
 </body>
 </html>"##;
 
@@ -906,6 +907,7 @@ fn error_page(message: &str) -> Html<String> {
     <a href="/">&larr; Try again</a>
   </div>
 </div>
+<img src="https://tally.extragornax.fr/t/gpx" alt="" width="1" height="1" style="position:absolute;opacity:0" referrerpolicy="no-referrer-when-downgrade" />
 </body>
 </html>"#,
         html_escape(message)
@@ -1587,6 +1589,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
   }};
 </script>
 <script src="/static/recents.js" defer></script>
+<img src="https://tally.extragornax.fr/t/gpx" alt="" width="1" height="1" style="position:absolute;opacity:0" referrerpolicy="no-referrer-when-downgrade" />
 </body>
 </html>"#,
         id = id,
