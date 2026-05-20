@@ -8,7 +8,11 @@ services:
     environment:
       - PORT=3000
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - BASE_URL=${BASE_URL:-${PUBLIC_BASE_URL:-}}
       - APK_DIR=/data/apk
+      - STRAVA_CLIENT_ID=${STRAVA_CLIENT_ID:-}
+      - STRAVA_CLIENT_SECRET=${STRAVA_CLIENT_SECRET:-}
+      - STRAVA_WEBHOOK_VERIFY_TOKEN=${STRAVA_WEBHOOK_VERIFY_TOKEN:-}
     volumes:
       - gpx_data:/data
       - apk_data:/data/apk:ro
