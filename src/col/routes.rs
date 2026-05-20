@@ -218,7 +218,7 @@ async fn run_sync(
 ) -> anyhow::Result<()> {
     let mut page = 1u32;
     loop {
-        let activities = strava::fetch_activities(token, page).await?;
+        let activities = strava::fetch_activities(token, page, &auth.rate_limiter).await?;
         if activities.is_empty() {
             break;
         }
@@ -279,7 +279,7 @@ async fn process_activity(
 
     let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
-    let streams = strava::fetch_streams(&access_token, activity_id).await?;
+    let streams = strava::fetch_streams(&access_token, activity_id, &auth.rate_limiter).await?;
     let Some(points) = streams else {
         return Ok(());
     };
@@ -405,7 +405,7 @@ async fn handle_webhook_activity(
 
     let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
-    let activity = strava::fetch_activity(&access_token, activity_id).await?;
+    let activity = strava::fetch_activity(&access_token, activity_id, &auth.rate_limiter).await?;
     let Some(activity) = activity else {
         return Ok(());
     };

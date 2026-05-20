@@ -1,4 +1,89 @@
 use serde::Deserialize;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+pub struct RateLimiter {
+    short_limit: AtomicU32,
+    daily_limit: AtomicU32,
+    short_usage: AtomicU32,
+    daily_usage: AtomicU32,
+}
+
+#[derive(Debug)]
+pub struct RateLimitExceeded {
+    pub usage_pct: f32,
+}
+
+impl std::fmt::Display for RateLimitExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Strava rate limit exceeded ({:.0}% used)",
+            self.usage_pct * 100.0
+        )
+    }
+}
+
+impl std::error::Error for RateLimitExceeded {}
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self {
+            short_limit: AtomicU32::new(100),
+            daily_limit: AtomicU32::new(1000),
+            short_usage: AtomicU32::new(0),
+            daily_usage: AtomicU32::new(0),
+        }
+    }
+
+    pub fn update_from_headers(&self, headers: &reqwest::header::HeaderMap) {
+        if let Some(limit) = headers.get("x-ratelimit-limit").and_then(|v| v.to_str().ok()) {
+            let parts: Vec<&str> = limit.split(',').collect();
+            if let Some(v) = parts.first().and_then(|s| s.trim().parse().ok()) {
+                self.short_limit.store(v, Ordering::Relaxed);
+            }
+            if let Some(v) = parts.get(1).and_then(|s| s.trim().parse().ok()) {
+                self.daily_limit.store(v, Ordering::Relaxed);
+            }
+        }
+        if let Some(usage) = headers.get("x-ratelimit-usage").and_then(|v| v.to_str().ok()) {
+            let parts: Vec<&str> = usage.split(',').collect();
+            if let Some(v) = parts.first().and_then(|s| s.trim().parse().ok()) {
+                self.short_usage.store(v, Ordering::Relaxed);
+            }
+            if let Some(v) = parts.get(1).and_then(|s| s.trim().parse().ok()) {
+                self.daily_usage.store(v, Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn usage_pct(&self) -> f32 {
+        let sl = self.short_limit.load(Ordering::Relaxed) as f32;
+        let dl = self.daily_limit.load(Ordering::Relaxed) as f32;
+        let su = self.short_usage.load(Ordering::Relaxed) as f32;
+        let du = self.daily_usage.load(Ordering::Relaxed) as f32;
+        let short_pct = if sl > 0.0 { su / sl } else { 0.0 };
+        let daily_pct = if dl > 0.0 { du / dl } else { 0.0 };
+        short_pct.max(daily_pct)
+    }
+
+    pub fn check_read(&self) -> Result<(), RateLimitExceeded> {
+        let pct = self.usage_pct();
+        if pct >= 0.70 {
+            Err(RateLimitExceeded { usage_pct: pct })
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn check_overall(&self) -> Result<(), RateLimitExceeded> {
+        let pct = self.usage_pct();
+        if pct >= 0.80 {
+            Err(RateLimitExceeded { usage_pct: pct })
+        } else {
+            Ok(())
+        }
+    }
+}
 
 pub struct StravaConfig {
     pub client_id: String,
@@ -67,7 +152,12 @@ pub struct Athlete {
     pub lastname: Option<String>,
 }
 
-pub async fn exchange_code(config: &StravaConfig, code: &str) -> anyhow::Result<TokenResponse> {
+pub async fn exchange_code(
+    config: &StravaConfig,
+    code: &str,
+    rl: &RateLimiter,
+) -> anyhow::Result<TokenResponse> {
+    rl.check_overall()?;
     let client = reqwest::Client::new();
     let resp = client
         .post("https://www.strava.com/oauth/token")
@@ -78,17 +168,17 @@ pub async fn exchange_code(config: &StravaConfig, code: &str) -> anyhow::Result<
             ("grant_type", "authorization_code"),
         ])
         .send()
-        .await?
-        .error_for_status()?
-        .json::<TokenResponse>()
         .await?;
-    Ok(resp)
+    rl.update_from_headers(resp.headers());
+    Ok(resp.error_for_status()?.json::<TokenResponse>().await?)
 }
 
 pub async fn refresh_token(
     config: &StravaConfig,
     refresh: &str,
+    rl: &RateLimiter,
 ) -> anyhow::Result<RefreshResponse> {
+    rl.check_overall()?;
     let client = reqwest::Client::new();
     let resp = client
         .post("https://www.strava.com/oauth/token")
@@ -99,11 +189,9 @@ pub async fn refresh_token(
             ("grant_type", "refresh_token"),
         ])
         .send()
-        .await?
-        .error_for_status()?
-        .json::<RefreshResponse>()
         .await?;
-    Ok(resp)
+    rl.update_from_headers(resp.headers());
+    Ok(resp.error_for_status()?.json::<RefreshResponse>().await?)
 }
 
 pub struct StreamPoint {
@@ -127,18 +215,21 @@ pub struct StravaActivity {
 pub async fn fetch_activities(
     access_token: &str,
     page: u32,
+    rl: &RateLimiter,
 ) -> anyhow::Result<Vec<StravaActivity>> {
+    rl.check_read()?;
     let client = reqwest::Client::new();
     let resp = client
         .get("https://www.strava.com/api/v3/athlete/activities")
         .bearer_auth(access_token)
         .query(&[("per_page", "200"), ("page", &page.to_string())])
         .send()
-        .await?
+        .await?;
+    rl.update_from_headers(resp.headers());
+    Ok(resp
         .error_for_status()?
         .json::<Vec<StravaActivity>>()
-        .await?;
-    Ok(resp)
+        .await?)
 }
 
 #[derive(Deserialize)]
@@ -151,7 +242,9 @@ struct StreamEntry {
 pub async fn fetch_streams(
     access_token: &str,
     activity_id: i64,
+    rl: &RateLimiter,
 ) -> anyhow::Result<Option<Vec<StreamPoint>>> {
+    rl.check_read()?;
     let client = reqwest::Client::new();
     let url = format!("https://www.strava.com/api/v3/activities/{activity_id}/streams");
     let resp = client
@@ -163,6 +256,7 @@ pub async fn fetch_streams(
         ])
         .send()
         .await?;
+    rl.update_from_headers(resp.headers());
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -209,10 +303,13 @@ pub async fn fetch_streams(
 pub async fn fetch_activity(
     access_token: &str,
     activity_id: i64,
+    rl: &RateLimiter,
 ) -> anyhow::Result<Option<StravaActivity>> {
+    rl.check_read()?;
     let client = reqwest::Client::new();
     let url = format!("https://www.strava.com/api/v3/activities/{activity_id}");
     let resp = client.get(&url).bearer_auth(access_token).send().await?;
+    rl.update_from_headers(resp.headers());
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }

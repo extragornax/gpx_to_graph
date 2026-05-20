@@ -13,6 +13,7 @@ use axum::routing::{delete, get, post};
 pub struct AuthService {
     pub db: db::Db,
     pub strava_config: Option<strava::StravaConfig>,
+    pub rate_limiter: strava::RateLimiter,
 }
 
 pub type AuthState = Arc<AuthService>;
@@ -93,7 +94,11 @@ pub fn router() -> Router {
 pub fn build_state(db_path: &str, strava_config: Option<strava::StravaConfig>) -> AuthState {
     let db = db::Db::open(db_path).expect("failed to open auth db");
     db.migrate().expect("failed to migrate auth db");
-    Arc::new(AuthService { db, strava_config })
+    Arc::new(AuthService {
+        db,
+        strava_config,
+        rate_limiter: strava::RateLimiter::new(),
+    })
 }
 
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
@@ -123,7 +128,8 @@ pub async fn ensure_fresh_token(
         .strava_config
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Strava not configured"))?;
-    let refreshed = strava::refresh_token(config, &tokens.refresh_token).await?;
+    auth.rate_limiter.check_overall()?;
+    let refreshed = strava::refresh_token(config, &tokens.refresh_token, &auth.rate_limiter).await?;
     auth.db.save_strava_tokens(
         user_id,
         &refreshed.access_token,

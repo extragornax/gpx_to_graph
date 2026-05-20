@@ -57,9 +57,10 @@ pub async fn strava_map_access(
     let mut page = 1u32;
 
     loop {
-        let activities = crate::auth::strava::fetch_activities(&access_token, page)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let activities =
+            crate::auth::strava::fetch_activities(&access_token, page, &auth.rate_limiter)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         if activities.is_empty() {
             break;
@@ -111,15 +112,16 @@ pub async fn strava_map_points(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Fetch activity details
-    let activity = crate::auth::strava::fetch_activity(&access_token, activity_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let activity =
+        crate::auth::strava::fetch_activity(&access_token, activity_id, &auth.rate_limiter)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Fetch stream data for elevation and coordinates
-    let points_opt = crate::auth::strava::fetch_streams(&access_token, activity_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let points_opt =
+        crate::auth::strava::fetch_streams(&access_token, activity_id, &auth.rate_limiter)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let map_points = match points_opt {
         Some(points) => points

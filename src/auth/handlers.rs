@@ -146,7 +146,7 @@ pub async fn strava_callback(
         "Strava integration not configured".into(),
     ))?;
 
-    let token = strava::exchange_code(config, &params.code)
+    let token = strava::exchange_code(config, &params.code, &auth.rate_limiter)
         .await
         .map_err(|e| {
             (
