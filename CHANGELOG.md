@@ -34,7 +34,7 @@
 ## 2026-04-26
 
 ### Added
-- Integrated meteo, ravito, trace, strava_stats, and col services into unified server
+- Integrated meteo, ravito, strava_stats, and col services into unified server
 
 ## 2026-04-24
 

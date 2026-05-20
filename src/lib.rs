@@ -10,8 +10,6 @@ pub mod meteo;
 #[cfg(feature = "server")]
 pub mod ravito;
 #[cfg(feature = "server")]
-pub mod trace;
-#[cfg(feature = "server")]
 pub mod strava_stats;
 #[cfg(feature = "server")]
 pub mod col;
@@ -23,8 +21,6 @@ pub mod trip;
 pub mod pow;
 #[cfg(feature = "server")]
 pub mod auth;
-#[cfg(feature = "server")]
-pub mod roulette;
 
 // ---------------------------------------------------------------------------
 // Public data types

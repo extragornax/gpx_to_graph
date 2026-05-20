@@ -381,11 +381,9 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/toolkit" class="nav-link">Toolkit</a>
     <a href="/meteo" class="nav-link">Meteo</a>
     <a href="/ravito" class="nav-link">Ravito</a>
-    <a href="/trace" class="nav-link">Trace</a>
     <a href="/stats" class="nav-link">Stats</a>
     <a href="/col" class="nav-link">Col</a>
     <a href="/trip" class="nav-link">Trip</a>
-    <a href="/roulette" class="nav-link">Roulette</a>
     <a href="/auth" class="nav-link" style="margin-left:auto">Compte</a>
     <a id="android-download" href="/download/android.apk" class="nav-link" hidden style="border:1px solid var(--ink);padding:.25rem .6rem;">Android APK</a>
   </nav>
@@ -2868,33 +2866,6 @@ async fn main() {
             .expect("failed to open ravito cache"),
     );
 
-    // --- Trace service ---
-    let trace_db_path = std::env::var("TRACE_DB_PATH").unwrap_or_else(|_| "data/trace.db".into());
-    if let Some(parent) = std::path::Path::new(&trace_db_path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let trace_db = gpx_to_graph::trace::db::Db::open(&trace_db_path)
-        .expect("failed to open trace db");
-    trace_db.migrate().expect("failed to migrate trace db");
-    let trace_state: gpx_to_graph::trace::SharedState = std::sync::Arc::new(
-        gpx_to_graph::trace::AppState {
-            db: trace_db,
-            channels: gpx_to_graph::trace::session::Channels::new(),
-        },
-    );
-
-    // Purge expired trace sessions every 10 minutes.
-    let purge_state = trace_state.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
-        loop {
-            interval.tick().await;
-            if let Err(e) = purge_state.db.purge_expired() {
-                tracing::warn!("trace purge error: {e}");
-            }
-        }
-    });
-
     // --- Col service ---
     let col_db_path = std::env::var("COL_DB_PATH").unwrap_or_else(|_| "data/col.db".into());
     if let Some(parent) = std::path::Path::new(&col_db_path).parent() {
@@ -2922,26 +2893,6 @@ async fn main() {
             db: trip_db,
         },
     );
-
-    // --- Roulette service ---
-    let roulette_db_path = std::env::var("ROULETTE_DB_PATH").unwrap_or_else(|_| "data/roulette.db".into());
-    let roulette_brouter_url = std::env::var("BROUTER_URL").unwrap_or_else(|_| "https://brouter.de/brouter".into());
-    let roulette_db = gpx_to_graph::roulette::db::init(&roulette_db_path)
-        .expect("failed to open roulette db");
-    let roulette_state = gpx_to_graph::roulette::build_state(roulette_db, roulette_brouter_url);
-
-    {
-        let st = roulette_state.clone();
-        tokio::spawn(async move {
-            loop {
-                {
-                    let conn = st.db.lock().unwrap();
-                    let _ = gpx_to_graph::roulette::db::cleanup_old_sessions(&conn);
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-            }
-        });
-    }
 
     // --- Auth service ---
     let auth_db_path = std::env::var("AUTH_DB_PATH").unwrap_or_else(|_| "data/auth.db".into());
@@ -2990,12 +2941,10 @@ async fn main() {
         // Nested service routers
         .nest("/meteo", gpx_to_graph::meteo::router(meteo_cache))
         .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))
-        .nest("/trace", gpx_to_graph::trace::router(trace_state))
         .nest("/stats", gpx_to_graph::strava_stats::router())
         .nest("/col", gpx_to_graph::col::router(col_state))
         .nest("/toolkit", gpx_to_graph::toolkit::router())
         .nest("/trip", gpx_to_graph::trip::router(trip_state))
-        .nest("/roulette", gpx_to_graph::roulette::router(roulette_state))
         .nest("/auth", gpx_to_graph::auth::router())
         .layer(axum::Extension(auth_state));
 

@@ -40,7 +40,7 @@ PWA assets:
 - `static/manifest.json` — root Web App Manifest (`start_url: /`).
 - `static/sw.js` — service worker (network-first, shell cached).
 - `static/icon-192.png` / `static/icon-512.png` — placeholder icons
-  (copied from `static/trace/`; replace before release).
+  (replace before release).
 - `static/.well-known/assetlinks.json` — embedded fallback (placeholder).
   When `apk-builder` has run, the server prefers the live file from the
   `apk_data` volume.
@@ -73,9 +73,7 @@ APK builder:
 PWA `<link rel="manifest">`, theme-color, apple-touch-icon,
 mobile-web-app meta tags, and `serviceWorker.register('/sw.js')` are
 injected into the root form page and each feature page (`col`, `trip`,
-`strava_stats`, `roulette`, `meteo`, `ravito`, `toolkit`, `auth`). The
-`trace/` subapp keeps its own scoped PWA (`/trace/manifest.json`,
-`/trace/sw.js`) and is unchanged.
+`strava_stats`, `meteo`, `ravito`, `toolkit`, `auth`).
 
 ## Required env
 
@@ -158,7 +156,7 @@ next launch via the service worker.
 
 ## Replace placeholder icons
 
-`static/icon-*.png` are reused from the Trace subapp. Before public
+`static/icon-*.png` are placeholders. Before public
 release, replace with branded 192×192 and 512×512 PNGs (`purpose: "any
 maskable"` — keep important content within the inner 80%). Then
 `docker compose build && docker compose up -d gpx-blue` so the new

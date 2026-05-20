@@ -1,7 +1,7 @@
 {
   "name": "GPX Tools",
   "short_name": "GPX",
-  "description": "GPX route graphs, climbs, trips, meteo, ravito, live tracking",
+  "description": "GPX route graphs, climbs, trips, meteo, ravito",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -15,8 +15,6 @@
   ],
   "shortcuts": [
     { "name": "Climbs",   "short_name": "Cols",    "url": "/col/" },
-    { "name": "Trip",     "short_name": "Trip",    "url": "/trip/" },
-    { "name": "Tracker",  "short_name": "Trace",   "url": "/trace/tracker.html" },
-    { "name": "Roulette", "short_name": "Roul.",   "url": "/roulette/" }
+    { "name": "Trip",     "short_name": "Trip",    "url": "/trip/" }
   ]
 }
