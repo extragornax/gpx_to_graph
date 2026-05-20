@@ -49,7 +49,7 @@
     </h1>
 
     <p class="tagline">
-      Paste a GPX trace, name your hour of departure, set a cruising speed — and we'll
+      Upload a GPX trace, name your hour of departure, set a cruising speed — and we'll
       hunt down every <em>boulangerie</em>, grocer, bar-tabac and fountain within reach of
       your tyres, each one checked against the opening hours for the clock
       <em>you</em> actually roll past.
@@ -65,29 +65,24 @@
     </div>
 
     <div class="field">
-      <label for="gpx"><span class="num">①</span> Trace GPX</label>
-      <textarea id="gpx" rows="4" spellcheck="false" placeholder="&lt;?xml version='1.0' ...&gt;&#10;&lt;gpx&gt;&#10;  &lt;trk&gt;&lt;trkseg&gt;&#10;    &lt;trkpt lat='48.8566' lon='2.3522'/&gt;&#10;    ..."></textarea>
-    </div>
-
-    <div class="field">
-      <label for="upload"><span class="num">②</span> Or upload a .gpx file</label>
+      <label for="upload"><span class="num">①</span> Upload a .gpx file</label>
       <input type="file" id="upload" accept=".gpx,application/gpx+xml,text/xml">
     </div>
 
     <div class="row3">
       <div class="field">
-        <label for="start"><span class="num">③</span> Départ (local time)</label>
+        <label for="start"><span class="num">②</span> Départ (local time)</label>
         <input type="datetime-local" id="start">
       </div>
       <div class="field">
-        <label for="speed"><span class="num">④</span> Vitesse moyenne</label>
+        <label for="speed"><span class="num">③</span> Vitesse moyenne</label>
         <div class="input-row">
           <input type="number" id="speed" value="22" min="5" max="60" step="1">
           <span class="unit">km/h</span>
         </div>
       </div>
       <div class="field">
-        <label for="corridor"><span class="num">⑤</span> Corridor</label>
+        <label for="corridor"><span class="num">④</span> Corridor</label>
         <div class="input-row">
           <input type="number" id="corridor" value="120" min="20" max="2000" step="10">
           <span class="unit">mètres</span>
@@ -96,7 +91,7 @@
     </div>
 
     <fieldset class="kinds">
-      <legend><span class="num">⑥</span> Chercher</legend>
+      <legend><span class="num">⑤</span> Chercher</legend>
       <label>
         <input type="checkbox" class="kind" value="bakery" checked>
         <span class="mark"></span>
@@ -259,11 +254,10 @@ function setStatus(msg, kind) {
 async function submit(ev) {
   ev.preventDefault();
   setStatus('Querying OpenStreetMap…', 'info');
-  let gpx = $('#gpx').value.trim();
   const upload = $('#upload').files[0];
   try {
-    if (upload) gpx = await upload.text();
-    if (!gpx) throw new Error('no GPX provided');
+    if (!upload) throw new Error('No GPX file selected.');
+    const gpx = await upload.text();
     const local = $('#start').value;
     const start = local ? new Date(local).toISOString() : null;
     const speed_kmh = Number($('#speed').value) || 22;
