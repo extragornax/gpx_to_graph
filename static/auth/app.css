@@ -127,3 +127,30 @@ body {
   display: flex; gap: 12px; margin-top: 24px;
 }
 .logged-actions .btn { flex: 1; }
+
+.strava-panel {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+.strava-header {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--sepia);
+  margin-bottom: 10px;
+}
+.strava-status {
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+.strava-status .strava-ok {
+  color: #476b2e;
+  font-weight: 600;
+}
+.strava-actions {
+  display: flex; gap: 10px;
+}
+.strava-actions .btn { flex: 1; }

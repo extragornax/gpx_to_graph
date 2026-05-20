@@ -49,6 +49,14 @@
   <div class="auth-card hidden" id="logged-card">
     <h1>Connecté</h1>
     <p class="auth-subtitle">Bienvenue, <strong id="display-username"></strong></p>
+
+    <div class="strava-panel hidden" id="strava-panel">
+      <div class="strava-header">Strava</div>
+      <div class="strava-status" id="strava-status">…</div>
+      <div class="strava-actions" id="strava-actions"></div>
+      <div class="error hidden" id="strava-error"></div>
+    </div>
+
     <div class="logged-actions">
       <a href="/" class="btn">Accueil</a>
       <button class="btn btn-outline" id="logout-btn">Se déconnecter</button>
@@ -132,6 +140,7 @@ $('#auth-form').addEventListener('submit', async e => {
 $('#logout-btn').addEventListener('click', async () => {
   await fetch(`${AUTH_BASE}/api/logout`, { method: 'POST' });
   $('#logged-card').classList.add('hidden');
+  $('#strava-panel').classList.add('hidden');
   $('#auth-card').classList.remove('hidden');
 });
 
@@ -143,8 +152,50 @@ async function checkSession() {
       $('#display-username').textContent = data.username;
       $('#auth-card').classList.add('hidden');
       $('#logged-card').classList.remove('hidden');
+      loadStravaPanel();
     }
   } catch (_) {}
+}
+
+async function loadStravaPanel() {
+  const panel = $('#strava-panel');
+  const statusEl = $('#strava-status');
+  const actionsEl = $('#strava-actions');
+  const errEl = $('#strava-error');
+  errEl.classList.add('hidden');
+  try {
+    const res = await fetch(`${AUTH_BASE}/api/strava/status`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.configured) return;
+    panel.classList.remove('hidden');
+    if (data.connected) {
+      statusEl.innerHTML = `<span class="strava-ok">Connecté</span>${data.athlete_name ? ` — ${data.athlete_name}` : ''}`;
+      actionsEl.innerHTML = `<button class="btn btn-outline" id="strava-disconnect">Déconnecter Strava</button>`;
+      $('#strava-disconnect').addEventListener('click', disconnectStrava);
+    } else {
+      statusEl.textContent = 'Non connecté';
+      actionsEl.innerHTML = `<a class="btn" href="${AUTH_BASE}/strava?redirect=${encodeURIComponent(location.pathname)}">Connecter Strava</a>`;
+    }
+  } catch (_) {}
+}
+
+async function disconnectStrava() {
+  const errEl = $('#strava-error');
+  errEl.classList.add('hidden');
+  if (!confirm('Déconnecter Strava de ce compte ?')) return;
+  try {
+    const res = await fetch('/auth/api/strava', { method: 'DELETE' });
+    if (res.status === 204) {
+      loadStravaPanel();
+    } else {
+      errEl.textContent = await res.text();
+      errEl.classList.remove('hidden');
+    }
+  } catch (_) {
+    errEl.textContent = 'Erreur réseau';
+    errEl.classList.remove('hidden');
+  }
 }
 
 checkSession();
