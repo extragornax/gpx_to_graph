@@ -194,6 +194,12 @@
       stronger wind. <span style="color:var(--carmine);font-weight:600">Red</span> = headwind,
       <span style="color:var(--moss);font-weight:600">green</span> = tailwind.
     </p>
+    <div class="map-controls">
+      <label class="map-slider-label">
+        <span>Arrow opacity</span>
+        <input type="range" id="arrow-opacity" min="0.3" max="1" step="0.05" value="0.85">
+      </label>
+    </div>
     <div id="wind-map" style="height:500px;border:1px solid var(--rule);background:var(--paper-2);"></div>
   </article>
 
@@ -249,9 +255,9 @@ async function submit(ev) {
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
     lastResp = data;
-    render(data);
     $('#results').hidden = false;
     document.querySelectorAll('.reveal-late').forEach(el => el.classList.add('in'));
+    render(data);
     $('#status').textContent = '';
   } catch (e) {
     $('#status').textContent = String(e.message || e);
@@ -571,6 +577,14 @@ function renderTable(data) {
 }
 
 let windMap = null;
+let arrowLayer = null;
+
+function mapArrowColor(hw) {
+  if (hw == null) return '#0a1f3b';
+  if (hw > 1) return '#b8242a';
+  if (hw < -1) return '#476b2e';
+  return '#0a1f3b';
+}
 
 function renderMap(data) {
   const container = document.getElementById('wind-map');
@@ -586,8 +600,14 @@ function renderMap(data) {
   }).addTo(windMap);
 
   const latlngs = pts.map(p => [p.lat, p.lon]);
+  const bounds = L.latLngBounds(latlngs).pad(0.08);
   L.polyline(latlngs, { color: INK, weight: 2.5, opacity: 0.6 }).addTo(windMap);
-  windMap.fitBounds(L.latLngBounds(latlngs).pad(0.08));
+  windMap.fitBounds(bounds);
+  setTimeout(() => { windMap.invalidateSize(); windMap.fitBounds(bounds); }, 100);
+
+  arrowLayer = L.layerGroup().addTo(windMap);
+  const opacity = parseFloat($('#arrow-opacity').value);
+  arrowLayer.getPane = () => windMap.getPane('markerPane');
 
   const every = Math.max(1, Math.ceil(pts.length / 60));
   for (let i = 0; i < pts.length; i += every) {
@@ -597,7 +617,7 @@ function renderMap(data) {
     const speed = p.wind_speed_kmh;
     const size = Math.round(16 + Math.min(speed, 50) * 0.8);
     const half = size / 2;
-    const col = headwindColor(p.headwind_kmh);
+    const col = mapArrowColor(p.headwind_kmh);
     const rot = (p.wind_dir_deg + 180) % 360;
 
     const svg = `<svg width="${size}" height="${size}" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="transform:rotate(${rot}deg)">` +
@@ -607,17 +627,23 @@ function renderMap(data) {
 
     const icon = L.divIcon({
       html: svg,
-      className: '',
+      className: 'wind-arrow',
       iconSize: [size, size],
       iconAnchor: [half, half],
     });
 
     const hw = p.headwind_kmh;
     const hwLabel = hw == null ? '' : (hw > 0 ? 'headwind' : 'tailwind');
-    L.marker([p.lat, p.lon], { icon }).addTo(windMap)
+    L.marker([p.lat, p.lon], { icon, opacity }).addTo(arrowLayer)
       .bindPopup(`<b>km ${p.km.toFixed(1)}</b><br>Wind: ${speed.toFixed(0)} km/h<br>${hwLabel}: ${Math.abs(hw || 0).toFixed(0)} km/h`);
   }
 }
+
+$('#arrow-opacity').addEventListener('input', function() {
+  if (!arrowLayer) return;
+  const val = parseFloat(this.value);
+  arrowLayer.eachLayer(m => m.setOpacity(val));
+});
 
 setToday();
 initStartTime();

@@ -584,6 +584,20 @@ main {
 #wind-map .leaflet-popup-content b { font-family: var(--f-mono); font-size: 12px; }
 #wind-map .leaflet-popup-content { font-family: var(--f-mono); font-size: 11px; line-height: 1.5; }
 
+.map-controls {
+  display: flex; align-items: center; gap: 1.2rem;
+  margin-bottom: 0.6rem;
+}
+.map-slider-label {
+  display: inline-flex; align-items: center; gap: 0.6rem;
+  font-family: var(--f-mono); font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.8;
+}
+.map-slider-label input[type="range"] {
+  width: 120px; accent-color: var(--carmine);
+}
+
 /* ---------- Colophon ---------- */
 
 .colophon {
