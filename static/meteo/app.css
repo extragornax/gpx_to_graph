@@ -578,6 +578,12 @@ main {
 #tbl .hw-tail { color: var(--moss); font-weight: 500; }
 #tbl .mono { font-family: var(--f-mono); }
 
+/* ---------- Wind map ---------- */
+
+#wind-map { border-radius: 1px; }
+#wind-map .leaflet-popup-content b { font-family: var(--f-mono); font-size: 12px; }
+#wind-map .leaflet-popup-content { font-family: var(--f-mono); font-size: 11px; line-height: 1.5; }
+
 /* ---------- Colophon ---------- */
 
 .colophon {

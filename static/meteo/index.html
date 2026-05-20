@@ -15,6 +15,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <!-- CSS_PLACEHOLDER -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="/static/themes.css">
 <script>document.documentElement.dataset.theme=localStorage.getItem('gpx-theme')||'golden-hour'</script>
 <script src="/static/theme-switcher.js" defer></script>
@@ -180,6 +182,20 @@
     </div>
   </article>
 
+  <article class="chapter reveal-late">
+    <header class="chap-head">
+      <span class="no">05</span>
+      <h2>Wind map — <em>headwind on the route.</em></h2>
+      <span class="trailing-rule"></span>
+    </header>
+    <p class="hint">
+      Arrows show the wind direction at each kilometre. Larger arrows =
+      stronger wind. <span style="color:var(--carmine);font-weight:600">Red</span> = headwind,
+      <span style="color:var(--moss);font-weight:600">green</span> = tailwind.
+    </p>
+    <div id="wind-map" style="height:500px;border:1px solid var(--rule);background:var(--paper-2);"></div>
+  </article>
+
 </section>
 
 <footer class="colophon">
@@ -313,6 +329,7 @@ function render(data) {
   renderChart(data);
   renderWindow(data);
   renderTable(data);
+  renderMap(data);
 }
 
 function svgEl(parent, name, attrs) {
@@ -550,6 +567,55 @@ function renderTable(data) {
        <td class="num">${p.wind_speed_kmh?.toFixed(0) ?? '—'}</td>
        <td class="num ${hwClass}">${hwTxt}</td>`;
     tb.appendChild(row);
+  }
+}
+
+let windMap = null;
+
+function renderMap(data) {
+  const container = document.getElementById('wind-map');
+  if (windMap) { windMap.remove(); windMap = null; }
+
+  const pts = data.samples.filter(p => p.lat != null && p.lon != null);
+  if (!pts.length) return;
+
+  windMap = L.map(container, { zoomControl: true, scrollWheelZoom: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 18,
+  }).addTo(windMap);
+
+  const latlngs = pts.map(p => [p.lat, p.lon]);
+  L.polyline(latlngs, { color: INK, weight: 2.5, opacity: 0.6 }).addTo(windMap);
+  windMap.fitBounds(L.latLngBounds(latlngs).pad(0.08));
+
+  const every = Math.max(1, Math.ceil(pts.length / 60));
+  for (let i = 0; i < pts.length; i += every) {
+    const p = pts[i];
+    if (p.wind_speed_kmh == null) continue;
+
+    const speed = p.wind_speed_kmh;
+    const size = Math.round(16 + Math.min(speed, 50) * 0.8);
+    const half = size / 2;
+    const col = headwindColor(p.headwind_kmh);
+    const rot = (p.wind_dir_deg + 180) % 360;
+
+    const svg = `<svg width="${size}" height="${size}" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="transform:rotate(${rot}deg)">` +
+      `<line x1="20" y1="34" x2="20" y2="6" stroke="${col}" stroke-width="3.5" stroke-linecap="round"/>` +
+      `<polygon points="20,2 13,14 27,14" fill="${col}"/>` +
+      `</svg>`;
+
+    const icon = L.divIcon({
+      html: svg,
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [half, half],
+    });
+
+    const hw = p.headwind_kmh;
+    const hwLabel = hw == null ? '' : (hw > 0 ? 'headwind' : 'tailwind');
+    L.marker([p.lat, p.lon], { icon }).addTo(windMap)
+      .bindPopup(`<b>km ${p.km.toFixed(1)}</b><br>Wind: ${speed.toFixed(0)} km/h<br>${hwLabel}: ${Math.abs(hw || 0).toFixed(0)} km/h`);
   }
 }
 
