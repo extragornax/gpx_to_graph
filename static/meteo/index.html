@@ -233,11 +233,10 @@ async function submit(ev) {
   const btn = $('#submit');
   btn.classList.add('loading');
   $('#status').textContent = 'Reading the sky …';
-  let gpx = $('#gpx').value.trim();
   const upload = $('#upload').files[0];
   try {
-    if (upload) gpx = await upload.text();
-    if (!gpx) throw new Error('No GPX provided — paste or upload a file.');
+    if (!upload) throw new Error('No GPX file selected.');
+    const gpx = await upload.text();
     lastGpx = gpx;
     const local = $('#start').value;
     const start = local ? new Date(local).toISOString() : null;
