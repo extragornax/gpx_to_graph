@@ -2980,7 +2980,7 @@ async fn main() {
         .nest("/toolkit", gpx_to_graph::toolkit::router())
         .nest("/trip", gpx_to_graph::trip::router(trip_state))
         .nest("/auth", gpx_to_graph::auth::router())
-        .layer(axum::Extension(auth_state));
+        .layer(axum::Extension(auth_state.clone()));
 
     // Purge share directories older than SHARE_TTL_SECS every 10 min.
     tokio::spawn(async {
@@ -2996,5 +2996,53 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind to address");
+
+    // Self-register Strava push subscription once the listener is up.
+    // Strava performs a GET on our callback URL during creation, so the
+    // server must already be reachable. Skipped for localhost BASE_URLs.
+    if auth_state.strava_config.is_some() {
+        let auth_for_webhook = auth_state.clone();
+        tokio::spawn(async move {
+            let config = match auth_for_webhook.strava_config.as_ref() {
+                Some(c) => c,
+                None => return,
+            };
+            if config.base_url.contains("localhost") || config.base_url.contains("127.0.0.1") {
+                tracing::info!(
+                    base_url = %config.base_url,
+                    "skipping Strava webhook self-registration: BASE_URL not publicly reachable"
+                );
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let mut attempt = 0u32;
+            loop {
+                attempt += 1;
+                match gpx_to_graph::auth::strava::ensure_subscription(config).await {
+                    Ok(id) => {
+                        tracing::info!(
+                            subscription_id = id,
+                            callback_url = %gpx_to_graph::auth::strava::webhook_callback_url(config),
+                            "Strava webhook subscription active"
+                        );
+                        return;
+                    }
+                    Err(e) if attempt < 5 => {
+                        let backoff = 5 * attempt as u64;
+                        tracing::warn!(
+                            attempt,
+                            "Strava webhook self-registration failed: {e} (retry in {backoff}s)"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Strava webhook self-registration giving up: {e}");
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
     axum::serve(listener, app).await.expect("server error");
 }

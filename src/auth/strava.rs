@@ -218,3 +218,102 @@ pub async fn fetch_activity(
     }
     Ok(Some(resp.error_for_status()?.json().await?))
 }
+
+#[derive(Deserialize, Debug)]
+pub struct WebhookSubscription {
+    pub id: i64,
+    pub callback_url: String,
+}
+
+pub fn webhook_callback_url(config: &StravaConfig) -> String {
+    format!(
+        "{}/col/webhook/strava",
+        config.base_url.trim_end_matches('/')
+    )
+}
+
+pub async fn list_subscriptions(
+    config: &StravaConfig,
+) -> anyhow::Result<Vec<WebhookSubscription>> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://www.strava.com/api/v3/push_subscriptions")
+        .query(&[
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+        ])
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "list push_subscriptions failed [{status}]: {body}"
+        ));
+    }
+    Ok(serde_json::from_str(&body)?)
+}
+
+pub async fn delete_subscription(config: &StravaConfig, id: i64) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+    let url = format!("https://www.strava.com/api/v3/push_subscriptions/{id}");
+    let resp = client
+        .delete(&url)
+        .query(&[
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+        ])
+        .send()
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "delete push_subscription {id} failed [{status}]: {body}"
+        ));
+    }
+    Ok(())
+}
+
+pub async fn create_subscription(
+    config: &StravaConfig,
+    callback_url: &str,
+) -> anyhow::Result<i64> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://www.strava.com/api/v3/push_subscriptions")
+        .form(&[
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+            ("callback_url", callback_url),
+            ("verify_token", config.webhook_verify_token.as_str()),
+        ])
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "create push_subscription failed [{status}]: {body}"
+        ));
+    }
+    let v: serde_json::Value = serde_json::from_str(&body)?;
+    v.get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("missing id in response: {body}"))
+}
+
+/// Ensure exactly one Strava webhook subscription points at our callback.
+/// Strava allows only one subscription per app, so any stale subscription
+/// with a different callback_url is deleted before creating a fresh one.
+pub async fn ensure_subscription(config: &StravaConfig) -> anyhow::Result<i64> {
+    let callback_url = webhook_callback_url(config);
+    let existing = list_subscriptions(config).await?;
+    if let Some(sub) = existing.iter().find(|s| s.callback_url == callback_url) {
+        return Ok(sub.id);
+    }
+    for sub in existing {
+        delete_subscription(config, sub.id).await?;
+    }
+    create_subscription(config, &callback_url).await
+}
