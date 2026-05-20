@@ -69,7 +69,7 @@
   </h1>
 
   <p class="dek">
-    Paste a <tt>.gpx</tt>, pick a departure, and read the sky a kilometre
+    Upload a <tt>.gpx</tt>, pick a departure, and read the sky a kilometre
     at a time along your route — <em>température</em>, probability of rain,
     and the wind projected onto your heading. Then sweep
     <strong>48&nbsp;hours</strong> of half-hour starts and learn which
@@ -92,23 +92,18 @@
   </header>
 
   <div class="rows">
-    <div class="field field-textarea">
-      <label for="gpx"><span class="idx">i.</span> Paste a <tt>.gpx</tt></label>
-      <textarea id="gpx" rows="5" placeholder="<?xml version='1.0' ...&gt;&#10;&lt;gpx&gt;…&lt;/gpx&gt;" spellcheck="false"></textarea>
-    </div>
-
     <div class="field">
-      <label for="upload"><span class="idx">ii.</span> …or upload a file</label>
+      <label for="upload"><span class="idx">i.</span> Upload a <tt>.gpx</tt></label>
       <input type="file" id="upload" accept=".gpx,application/gpx+xml,text/xml">
     </div>
 
     <div class="grid-2">
       <div class="field">
-        <label for="start"><span class="idx">iii.</span> Departure — local time</label>
+        <label for="start"><span class="idx">ii.</span> Departure — local time</label>
         <input type="datetime-local" id="start">
       </div>
       <div class="field">
-        <label for="speed"><span class="idx">iv.</span> Average speed — km/h</label>
+        <label for="speed"><span class="idx">iii.</span> Average speed — km/h</label>
         <input type="number" id="speed" value="25" min="5" max="60" step="1">
       </div>
     </div>
@@ -156,6 +151,12 @@
       exposure. <strong>Click a cell</strong> to re-read the strip
       with that departure.
     </p>
+    <div class="key" aria-hidden="true">
+      <span><i class="sw" style="background:#e8dcc4"></i> gentle</span>
+      <span><i class="sw" style="background:#8a7e62"></i> moderate</span>
+      <span><i class="sw" style="background:#343434"></i> harsh</span>
+      <span><i class="sw" style="border:2px solid var(--carmine);background:transparent"></i> best start</span>
+    </div>
     <div id="window"></div>
   </article>
 
