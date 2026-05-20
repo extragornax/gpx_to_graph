@@ -251,8 +251,8 @@ pub struct WindSector {
 }
 
 const DIRECTIONS: [&str; 16] = [
-    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
-    "NW", "NNW",
+    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW",
+    "NNW",
 ];
 
 pub fn compute_wind_rose(activities: &[&Activity]) -> Vec<WindSector> {

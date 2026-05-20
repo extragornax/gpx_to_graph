@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 
 pub struct Db {
@@ -44,8 +44,12 @@ pub struct Stats {
 impl Db {
     pub fn open(path: &str) -> anyhow::Result<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;")?;
-        Ok(Self { conn: Mutex::new(conn) })
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;",
+        )?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn migrate(&self) -> anyhow::Result<()> {
@@ -87,7 +91,7 @@ impl Db {
 
             CREATE INDEX IF NOT EXISTS idx_climbs_user ON climbs(user_id);
             CREATE INDEX IF NOT EXISTS idx_climbs_loc ON climbs(user_id, lat, lon);
-            CREATE INDEX IF NOT EXISTS idx_attempts_climb ON attempts(climb_id);"
+            CREATE INDEX IF NOT EXISTS idx_attempts_climb ON attempts(climb_id);",
         )?;
         Ok(())
     }
@@ -158,19 +162,27 @@ impl Db {
 
     // ── Climbs ──
 
-    pub fn find_nearby_climb(&self, user_id: i64, lat: f64, lon: f64, radius_km: f64) -> anyhow::Result<Option<i64>> {
+    pub fn find_nearby_climb(
+        &self,
+        user_id: i64,
+        lat: f64,
+        lon: f64,
+        radius_km: f64,
+    ) -> anyhow::Result<Option<i64>> {
         let conn = self.conn.lock().unwrap();
         let dlat = radius_km / 111.0;
         let dlon = radius_km / (111.0 * lat.to_radians().cos());
 
         let mut stmt = conn.prepare(
             "SELECT id, lat, lon FROM climbs
-             WHERE user_id = ?1 AND lat BETWEEN ?2 AND ?3 AND lon BETWEEN ?4 AND ?5"
+             WHERE user_id = ?1 AND lat BETWEEN ?2 AND ?3 AND lon BETWEEN ?4 AND ?5",
         )?;
-        let rows: Vec<(i64, f64, f64)> = stmt.query_map(
-            params![user_id, lat - dlat, lat + dlat, lon - dlon, lon + dlon],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?.collect::<Result<Vec<_>, _>>()?;
+        let rows: Vec<(i64, f64, f64)> = stmt
+            .query_map(
+                params![user_id, lat - dlat, lat + dlat, lon - dlon, lon + dlon],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
 
         for (id, clat, clon) in rows {
             if haversine_km(lat, lon, clat, clon) < radius_km {
@@ -182,9 +194,16 @@ impl Db {
 
     #[allow(clippy::too_many_arguments)]
     pub fn insert_climb(
-        &self, user_id: i64, lat: f64, lon: f64,
-        start_ele: f64, end_ele: f64, gain: f64,
-        distance_km: f64, gradient: f64, date: &str,
+        &self,
+        user_id: i64,
+        lat: f64,
+        lon: f64,
+        start_ele: f64,
+        end_ele: f64,
+        gain: f64,
+        distance_km: f64,
+        gradient: f64,
+        date: &str,
     ) -> anyhow::Result<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -195,7 +214,13 @@ impl Db {
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn add_attempt(&self, climb_id: i64, date: &str, name: Option<&str>, elapsed: Option<f64>) -> anyhow::Result<()> {
+    pub fn add_attempt(
+        &self,
+        climb_id: i64,
+        date: &str,
+        name: Option<&str>,
+        elapsed: Option<f64>,
+    ) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO attempts (climb_id, activity_date, activity_name, elapsed_seconds) VALUES (?1, ?2, ?3, ?4)",
@@ -214,16 +239,26 @@ impl Db {
             "SELECT c.id, c.name, c.lat, c.lon, c.start_ele, c.end_ele, c.gain, c.distance_km,
                     c.gradient, COUNT(a.id), c.first_ridden, c.last_ridden
              FROM climbs c LEFT JOIN attempts a ON a.climb_id = c.id
-             WHERE c.user_id = ?1 GROUP BY c.id ORDER BY c.gain DESC"
+             WHERE c.user_id = ?1 GROUP BY c.id ORDER BY c.gain DESC",
         )?;
-        let rows = stmt.query_map(params![user_id], |row| {
-            Ok(ClimbRecord {
-                id: row.get(0)?, name: row.get(1)?, lat: row.get(2)?, lon: row.get(3)?,
-                start_ele: row.get(4)?, end_ele: row.get(5)?, gain: row.get(6)?,
-                distance_km: row.get(7)?, gradient: row.get(8)?, times_ridden: row.get(9)?,
-                first_ridden: row.get(10)?, last_ridden: row.get(11)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map(params![user_id], |row| {
+                Ok(ClimbRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    lat: row.get(2)?,
+                    lon: row.get(3)?,
+                    start_ele: row.get(4)?,
+                    end_ele: row.get(5)?,
+                    gain: row.get(6)?,
+                    distance_km: row.get(7)?,
+                    gradient: row.get(8)?,
+                    times_ridden: row.get(9)?,
+                    first_ridden: row.get(10)?,
+                    last_ridden: row.get(11)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
@@ -235,12 +270,22 @@ impl Db {
              FROM climbs c LEFT JOIN attempts a ON a.climb_id = c.id
              WHERE c.id = ?1 AND c.user_id = ?2 GROUP BY c.id",
             params![id, user_id],
-            |row| Ok(ClimbRecord {
-                id: row.get(0)?, name: row.get(1)?, lat: row.get(2)?, lon: row.get(3)?,
-                start_ele: row.get(4)?, end_ele: row.get(5)?, gain: row.get(6)?,
-                distance_km: row.get(7)?, gradient: row.get(8)?, times_ridden: row.get(9)?,
-                first_ridden: row.get(10)?, last_ridden: row.get(11)?,
-            }),
+            |row| {
+                Ok(ClimbRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    lat: row.get(2)?,
+                    lon: row.get(3)?,
+                    start_ele: row.get(4)?,
+                    end_ele: row.get(5)?,
+                    gain: row.get(6)?,
+                    distance_km: row.get(7)?,
+                    gradient: row.get(8)?,
+                    times_ridden: row.get(9)?,
+                    first_ridden: row.get(10)?,
+                    last_ridden: row.get(11)?,
+                })
+            },
         );
         match result {
             Ok(c) => Ok(Some(c)),
@@ -253,14 +298,19 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, climb_id, activity_date, activity_name, elapsed_seconds
-             FROM attempts WHERE climb_id = ?1 ORDER BY activity_date DESC"
+             FROM attempts WHERE climb_id = ?1 ORDER BY activity_date DESC",
         )?;
-        let rows = stmt.query_map(params![climb_id], |row| {
-            Ok(ClimbAttempt {
-                id: row.get(0)?, climb_id: row.get(1)?, activity_date: row.get(2)?,
-                activity_name: row.get(3)?, elapsed_seconds: row.get(4)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map(params![climb_id], |row| {
+                Ok(ClimbAttempt {
+                    id: row.get(0)?,
+                    climb_id: row.get(1)?,
+                    activity_date: row.get(2)?,
+                    activity_name: row.get(3)?,
+                    elapsed_seconds: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
@@ -276,7 +326,10 @@ impl Db {
     pub fn get_stats(&self, user_id: i64) -> anyhow::Result<Stats> {
         let conn = self.conn.lock().unwrap();
         let total_climbs: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM climbs WHERE user_id = ?1", params![user_id], |r| r.get(0))?;
+            "SELECT COUNT(*) FROM climbs WHERE user_id = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
         let total_attempts: i64 = conn.query_row(
             "SELECT COUNT(*) FROM attempts a JOIN climbs c ON a.climb_id = c.id WHERE c.user_id = ?1",
             params![user_id], |r| r.get(0))?;
@@ -286,27 +339,43 @@ impl Db {
              WHERE c.user_id = ?1",
             params![user_id], |r| r.get(0))?;
         let highest: f64 = conn.query_row(
-            "SELECT COALESCE(MAX(end_ele), 0) FROM climbs WHERE user_id = ?1", params![user_id], |r| r.get(0))?;
+            "SELECT COALESCE(MAX(end_ele), 0) FROM climbs WHERE user_id = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
         let steepest: f64 = conn.query_row(
-            "SELECT COALESCE(MAX(gradient), 0) FROM climbs WHERE user_id = ?1", params![user_id], |r| r.get(0))?;
+            "SELECT COALESCE(MAX(gradient), 0) FROM climbs WHERE user_id = ?1",
+            params![user_id],
+            |r| r.get(0),
+        )?;
 
-        let most: (Option<String>, i64) = conn.query_row(
-            "SELECT c.name, COUNT(a.id) cnt FROM climbs c JOIN attempts a ON a.climb_id = c.id
+        let most: (Option<String>, i64) = conn
+            .query_row(
+                "SELECT c.name, COUNT(a.id) cnt FROM climbs c JOIN attempts a ON a.climb_id = c.id
              WHERE c.user_id = ?1 GROUP BY c.id ORDER BY cnt DESC LIMIT 1",
-            params![user_id], |r| Ok((r.get(0)?, r.get(1)?)),
-        ).unwrap_or((None, 0));
+                params![user_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((None, 0));
 
         Ok(Stats {
-            total_climbs, total_attempts, total_gain_m: total_gain,
-            highest_climb_m: highest, steepest_gradient: steepest,
-            most_ridden_climb: most.0, most_ridden_count: most.1,
+            total_climbs,
+            total_attempts,
+            total_gain_m: total_gain,
+            highest_climb_m: highest,
+            steepest_gradient: steepest,
+            most_ridden_climb: most.0,
+            most_ridden_count: most.1,
         })
     }
 
     pub fn clear_user_data(&self, user_id: i64) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM climbs WHERE user_id = ?1", params![user_id])?;
-        conn.execute("DELETE FROM synced_activities WHERE user_id = ?1", params![user_id])?;
+        conn.execute(
+            "DELETE FROM synced_activities WHERE user_id = ?1",
+            params![user_id],
+        )?;
         Ok(())
     }
 
@@ -314,7 +383,8 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM synced_activities WHERE user_id = ?1 AND strava_id = ?2",
-            params![user_id, strava_id], |r| r.get(0),
+            params![user_id, strava_id],
+            |r| r.get(0),
         )?;
         Ok(count > 0)
     }

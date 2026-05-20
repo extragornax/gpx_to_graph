@@ -139,8 +139,12 @@ pub fn sample_by_km(raw: &[RawPoint], step_km: f64) -> Vec<KmSample> {
     // Fill in bearings from each sample to the next (last one copies previous).
     for i in 0..samples.len() {
         if i + 1 < samples.len() {
-            samples[i].bearing_deg =
-                bearing_deg(samples[i].lat, samples[i].lon, samples[i + 1].lat, samples[i + 1].lon);
+            samples[i].bearing_deg = bearing_deg(
+                samples[i].lat,
+                samples[i].lon,
+                samples[i + 1].lat,
+                samples[i + 1].lon,
+            );
         } else if i > 0 {
             samples[i].bearing_deg = samples[i - 1].bearing_deg;
         }

@@ -1,8 +1,8 @@
 pub mod db;
 pub mod routes;
 
-use std::sync::Arc;
 use axum::{Router, extract::DefaultBodyLimit};
+use std::sync::Arc;
 
 pub struct AppState {
     pub db: db::Db,

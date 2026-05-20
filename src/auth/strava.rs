@@ -11,11 +11,14 @@ impl StravaConfig {
     pub fn from_env() -> Option<Self> {
         let client_id = std::env::var("STRAVA_CLIENT_ID").ok()?;
         let client_secret = std::env::var("STRAVA_CLIENT_SECRET").ok()?;
-        let base_url =
-            std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
-        let webhook_verify_token = std::env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_else(
-            |_| format!("col-verify-{}", &client_secret[..8.min(client_secret.len())]),
-        );
+        let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+        let webhook_verify_token =
+            std::env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_else(|_| {
+                format!(
+                    "col-verify-{}",
+                    &client_secret[..8.min(client_secret.len())]
+                )
+            });
         Some(Self {
             client_id,
             client_secret,
@@ -154,7 +157,10 @@ pub async fn fetch_streams(
     let resp = client
         .get(&url)
         .bearer_auth(access_token)
-        .query(&[("keys", "latlng,altitude,distance"), ("key_type", "distance")])
+        .query(&[
+            ("keys", "latlng,altitude,distance"),
+            ("key_type", "distance"),
+        ])
         .send()
         .await?;
 

@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
-use axum::{
-    Json,
-    extract::State,
-    http::StatusCode,
-    response::Html,
-};
+use axum::{Json, extract::State, http::StatusCode, response::Html};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +14,10 @@ pub struct AppState {
 }
 
 pub async fn index() -> Html<String> {
-    Html(INDEX_HTML.replace("<!-- CSS_PLACEHOLDER -->", &format!("<style>{}</style>", APP_CSS)))
+    Html(INDEX_HTML.replace(
+        "<!-- CSS_PLACEHOLDER -->",
+        &format!("<style>{}</style>", APP_CSS),
+    ))
 }
 
 #[derive(Deserialize)]

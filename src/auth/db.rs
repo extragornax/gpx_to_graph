@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 pub struct StravaTokens {
     pub access_token: String,
@@ -21,8 +21,12 @@ impl Db {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;")?;
-        Ok(Self { conn: Mutex::new(conn) })
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;",
+        )?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn migrate(&self) -> Result<()> {
@@ -52,7 +56,7 @@ impl Db {
                 athlete_name  TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS idx_strava_athlete ON strava_tokens(athlete_id);"
+            CREATE INDEX IF NOT EXISTS idx_strava_athlete ON strava_tokens(athlete_id);",
         )?;
         Ok(())
     }
@@ -122,15 +126,23 @@ impl Db {
 
     pub fn cleanup_expired_sessions(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM sessions WHERE expires_at < datetime('now')", [])?;
+        conn.execute(
+            "DELETE FROM sessions WHERE expires_at < datetime('now')",
+            [],
+        )?;
         Ok(())
     }
 
     // ── Strava tokens ──
 
     pub fn save_strava_tokens(
-        &self, user_id: i64, access_token: &str, refresh_token: &str,
-        expires_at: i64, athlete_id: i64, athlete_name: Option<&str>,
+        &self,
+        user_id: i64,
+        access_token: &str,
+        refresh_token: &str,
+        expires_at: i64,
+        athlete_id: i64,
+        athlete_name: Option<&str>,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -158,16 +170,27 @@ impl Db {
         }
     }
 
-    pub fn get_strava_tokens_by_athlete(&self, athlete_id: i64) -> Result<Option<(i64, StravaTokens)>> {
+    pub fn get_strava_tokens_by_athlete(
+        &self,
+        athlete_id: i64,
+    ) -> Result<Option<(i64, StravaTokens)>> {
         let conn = self.conn.lock().unwrap();
         let result = conn.query_row(
             "SELECT user_id, access_token, refresh_token, expires_at, athlete_id, athlete_name
              FROM strava_tokens WHERE athlete_id = ?1",
             params![athlete_id],
-            |row| Ok((row.get(0)?, StravaTokens {
-                access_token: row.get(1)?, refresh_token: row.get(2)?,
-                expires_at: row.get(3)?, athlete_id: row.get(4)?, athlete_name: row.get(5)?,
-            })),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    StravaTokens {
+                        access_token: row.get(1)?,
+                        refresh_token: row.get(2)?,
+                        expires_at: row.get(3)?,
+                        athlete_id: row.get(4)?,
+                        athlete_name: row.get(5)?,
+                    },
+                ))
+            },
         );
         match result {
             Ok(t) => Ok(Some(t)),
@@ -178,7 +201,10 @@ impl Db {
 
     pub fn delete_strava_tokens(&self, user_id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM strava_tokens WHERE user_id = ?1", params![user_id])?;
+        conn.execute(
+            "DELETE FROM strava_tokens WHERE user_id = ?1",
+            params![user_id],
+        )?;
         Ok(())
     }
 }

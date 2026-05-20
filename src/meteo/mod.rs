@@ -3,10 +3,14 @@ mod handlers;
 pub mod weather;
 pub mod wind;
 
-use std::sync::Arc;
-use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
-use tower_http::trace::TraceLayer;
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+};
 use handlers::AppState;
+use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 use weather::WeatherCache;
 
 pub fn router(cache: Arc<WeatherCache>) -> Router {

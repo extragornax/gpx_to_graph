@@ -186,7 +186,10 @@ impl WeatherCache {
 }
 
 fn grid_cell(lat: f64, lon: f64) -> (i64, i64) {
-    ((lat / GRID_DEG).round() as i64, (lon / GRID_DEG).round() as i64)
+    (
+        (lat / GRID_DEG).round() as i64,
+        (lon / GRID_DEG).round() as i64,
+    )
 }
 
 #[derive(Deserialize)]

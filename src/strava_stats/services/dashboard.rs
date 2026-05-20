@@ -51,10 +51,7 @@ pub fn compute_summary(activities: &[&Activity]) -> Summary {
 
     let total_dist: f64 = activities.iter().map(|a| a.distance_meters).sum();
     let total_time: f64 = activities.iter().map(|a| a.moving_time).sum();
-    let total_elev: f64 = activities
-        .iter()
-        .filter_map(|a| a.elevation_gain)
-        .sum();
+    let total_elev: f64 = activities.iter().filter_map(|a| a.elevation_gain).sum();
     let total_cal: f64 = activities.iter().filter_map(|a| a.calories).sum();
     let max_dist = activities
         .iter()
@@ -69,7 +66,10 @@ pub fn compute_summary(activities: &[&Activity]) -> Summary {
         .filter_map(|a| a.max_speed)
         .fold(0.0f64, f64::max);
 
-    let hr_vals: Vec<f64> = activities.iter().filter_map(|a| a.average_heart_rate).collect();
+    let hr_vals: Vec<f64> = activities
+        .iter()
+        .filter_map(|a| a.average_heart_rate)
+        .collect();
     let avg_hr = if hr_vals.is_empty() {
         None
     } else {
@@ -85,10 +85,7 @@ pub fn compute_summary(activities: &[&Activity]) -> Summary {
 
     let mut gear_map: HashMap<String, (usize, f64)> = HashMap::new();
     for a in activities {
-        let name = a
-            .gear_name
-            .clone()
-            .unwrap_or_else(|| "(none)".to_string());
+        let name = a.gear_name.clone().unwrap_or_else(|| "(none)".to_string());
         let entry = gear_map.entry(name).or_insert((0, 0.0));
         entry.0 += 1;
         entry.1 += a.distance_meters;
@@ -176,10 +173,7 @@ pub fn compute_yearly(activities: &[&Activity]) -> Vec<YearStats> {
                 Some(watt_vals.iter().sum::<f64>() / watt_vals.len() as f64)
             };
 
-            let mut unique_days = acts
-                .iter()
-                .map(|a| a.date.date())
-                .collect::<Vec<_>>();
+            let mut unique_days = acts.iter().map(|a| a.date.date()).collect::<Vec<_>>();
             unique_days.sort();
             unique_days.dedup();
 
@@ -222,7 +216,10 @@ pub struct MonthStats {
 
 pub fn compute_monthly(activities: &[&Activity], year: Option<i32>) -> Vec<MonthStats> {
     let filtered: Vec<&&Activity> = if let Some(y) = year {
-        activities.iter().filter(|a| a.date.date().year() == y).collect()
+        activities
+            .iter()
+            .filter(|a| a.date.date().year() == y)
+            .collect()
     } else {
         activities.iter().collect()
     };

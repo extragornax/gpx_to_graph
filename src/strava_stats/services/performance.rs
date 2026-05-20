@@ -12,11 +12,7 @@ pub struct TrendPoint {
     pub rolling_avg: Option<f64>,
 }
 
-pub fn compute_trends(
-    activities: &[&Activity],
-    metric: &str,
-    window_days: i64,
-) -> Vec<TrendPoint> {
+pub fn compute_trends(activities: &[&Activity], metric: &str, window_days: i64) -> Vec<TrendPoint> {
     let extract: fn(&Activity) -> Option<f64> = match metric {
         "heart_rate" => |a| a.average_heart_rate,
         "watts" => |a| a.average_watts,
@@ -86,7 +82,10 @@ pub struct PersonalBests {
     pub highest_heart_rate_bpm: Option<PersonalBest>,
 }
 
-fn best_by<F: Fn(&Activity) -> Option<f64>>(activities: &[&Activity], f: F) -> Option<PersonalBest> {
+fn best_by<F: Fn(&Activity) -> Option<f64>>(
+    activities: &[&Activity],
+    f: F,
+) -> Option<PersonalBest> {
     activities
         .iter()
         .filter_map(|a| {
@@ -97,7 +96,11 @@ fn best_by<F: Fn(&Activity) -> Option<f64>>(activities: &[&Activity], f: F) -> O
                 value: v,
             })
         })
-        .max_by(|a, b| a.value.partial_cmp(&b.value).unwrap_or(std::cmp::Ordering::Equal))
+        .max_by(|a, b| {
+            a.value
+                .partial_cmp(&b.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 pub fn compute_personal_bests(activities: &[&Activity]) -> PersonalBests {
@@ -198,7 +201,10 @@ pub fn compute_power_curve(activities: &[&Activity]) -> Vec<PowerMonth> {
         .into_iter()
         .map(|((year, month), acts)| {
             let watts: Vec<f64> = acts.iter().filter_map(|a| a.average_watts).collect();
-            let wap: Vec<f64> = acts.iter().filter_map(|a| a.weighted_average_power).collect();
+            let wap: Vec<f64> = acts
+                .iter()
+                .filter_map(|a| a.weighted_average_power)
+                .collect();
 
             PowerMonth {
                 month: format!("{year}-{month:02}"),

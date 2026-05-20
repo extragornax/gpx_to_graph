@@ -23,7 +23,10 @@ pub fn parse_track(reader: impl std::io::Read) -> Result<Vec<RawPoint>> {
         for seg in track.segments {
             for p in seg.points {
                 let pt = p.point();
-                pts.push(RawPoint { lat: pt.y(), lon: pt.x() });
+                pts.push(RawPoint {
+                    lat: pt.y(),
+                    lon: pt.x(),
+                });
             }
         }
     }
@@ -31,7 +34,10 @@ pub fn parse_track(reader: impl std::io::Read) -> Result<Vec<RawPoint>> {
         for route in g.routes {
             for p in route.points {
                 let pt = p.point();
-                pts.push(RawPoint { lat: pt.y(), lon: pt.x() });
+                pts.push(RawPoint {
+                    lat: pt.y(),
+                    lon: pt.x(),
+                });
             }
         }
     }
@@ -82,14 +88,22 @@ pub fn sample_by_km(raw: &[RawPoint], step_km: f64) -> Vec<KmSample> {
             let t = ((target - cum[seg - 1]) / span).clamp(0.0, 1.0);
             (a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t)
         };
-        out.push(KmSample { km: target, lat, lon });
+        out.push(KmSample {
+            km: target,
+            lat,
+            lon,
+        });
         target += step_km;
     }
     if let Some(last) = out.last()
         && (total - last.km).abs() > 1e-6
     {
         let l = raw.last().unwrap();
-        out.push(KmSample { km: total, lat: l.lat, lon: l.lon });
+        out.push(KmSample {
+            km: total,
+            lat: l.lat,
+            lon: l.lon,
+        });
     }
     out
 }
@@ -152,8 +166,14 @@ mod tests {
     #[test]
     fn project_on_route() {
         let raw = vec![
-            RawPoint { lat: 48.0, lon: 2.0 },
-            RawPoint { lat: 48.0, lon: 2.1 },
+            RawPoint {
+                lat: 48.0,
+                lon: 2.0,
+            },
+            RawPoint {
+                lat: 48.0,
+                lon: 2.1,
+            },
         ];
         let cum = cumulative_km(&raw);
         // A point very close to the midpoint.

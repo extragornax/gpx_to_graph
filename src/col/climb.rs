@@ -71,7 +71,11 @@ pub fn detect_climbs(profile: &[ProfilePoint], min_gain: f64) -> Vec<DetectedCli
                 let gain = high_ele - low_ele;
                 if gain >= min_gain {
                     let dist = high_km - low_km;
-                    let gradient = if dist > 0.001 { gain / (dist * 10.0) } else { 0.0 };
+                    let gradient = if dist > 0.001 {
+                        gain / (dist * 10.0)
+                    } else {
+                        0.0
+                    };
                     climbs.push(DetectedClimb {
                         start_km: low_km,
                         end_km: high_km,
@@ -99,7 +103,11 @@ pub fn detect_climbs(profile: &[ProfilePoint], min_gain: f64) -> Vec<DetectedCli
         let gain = high_ele - low_ele;
         if gain >= min_gain {
             let dist = high_km - low_km;
-            let gradient = if dist > 0.001 { gain / (dist * 10.0) } else { 0.0 };
+            let gradient = if dist > 0.001 {
+                gain / (dist * 10.0)
+            } else {
+                0.0
+            };
             climbs.push(DetectedClimb {
                 start_km: low_km,
                 end_km: high_km,
@@ -159,7 +167,10 @@ pub fn profile_from_gpx(xml: &[u8]) -> anyhow::Result<GpxProfile> {
             }
         }
     }
-    Ok(GpxProfile { points, date: first_time })
+    Ok(GpxProfile {
+        points,
+        date: first_time,
+    })
 }
 
 fn resample(profile: &[ProfilePoint], step_km: f64) -> Vec<ProfilePoint> {

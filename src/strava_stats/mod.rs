@@ -4,9 +4,9 @@ pub mod routes;
 pub mod services;
 pub mod state;
 
-use axum::response::Html;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
+use axum::response::Html;
 use axum::routing::get;
 use state::{AppState, SharedState};
 use std::sync::Arc;
@@ -20,9 +20,7 @@ async fn index() -> Html<&'static str> {
 }
 
 pub fn router() -> Router {
-    let state: SharedState = Arc::new(RwLock::new(AppState {
-        activities: vec![],
-    }));
+    let state: SharedState = Arc::new(RwLock::new(AppState { activities: vec![] }));
 
     Router::new()
         .route("/", get(index))

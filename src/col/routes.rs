@@ -5,16 +5,19 @@ use axum::routing::{get, post, put};
 use axum::{Extension, Json, Router};
 use serde::Deserialize;
 
-use crate::auth::{self, strava, AuthState, CurrentUser};
-use super::climb;
 use super::SharedState;
+use super::climb;
+use crate::auth::{self, AuthState, CurrentUser, strava};
 
 const INDEX_HTML: &str = include_str!("../../static/col/index.html");
 
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/", get(page_index))
-        .route("/api/share-id", get(get_share_link).post(regenerate_share_link))
+        .route(
+            "/api/share-id",
+            get(get_share_link).post(regenerate_share_link),
+        )
         // Climbs (protected)
         .route("/api/upload/gpx", post(upload_gpx))
         .route("/api/climbs", get(list_climbs))
@@ -54,7 +57,10 @@ async fn regenerate_share_link(
     use rand::Rng;
     let bytes: [u8; 8] = rand::rng().random();
     let new_id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    state.db.regenerate_share_id(user.id, &new_id).map_err(err500)?;
+    state
+        .db
+        .regenerate_share_id(user.id, &new_id)
+        .map_err(err500)?;
     Ok(Json(serde_json::json!({ "share_id": new_id })))
 }
 
@@ -67,9 +73,16 @@ async fn upload_gpx(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut total_climbs = 0usize;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+    {
         let file_name = field.file_name().map(|s| s.to_string());
-        let data = field.bytes().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
         let gpx_profile = climb::profile_from_gpx(&data)
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("GPX parse error: {e}")))?;
@@ -78,22 +91,40 @@ async fn upload_gpx(
         let detected = climb::detect_climbs(&gpx_profile.points, 50.0);
 
         for c in &detected {
-            let existing = state.db.find_nearby_climb(user.id, c.lat, c.lon, 0.5).map_err(err500)?;
+            let existing = state
+                .db
+                .find_nearby_climb(user.id, c.lat, c.lon, 0.5)
+                .map_err(err500)?;
 
             let climb_id = match existing {
                 Some(id) => id,
-                None => state.db.insert_climb(
-                    user.id, c.lat, c.lon, c.start_ele, c.end_ele, c.gain,
-                    c.end_km - c.start_km, c.gradient, date,
-                ).map_err(err500)?,
+                None => state
+                    .db
+                    .insert_climb(
+                        user.id,
+                        c.lat,
+                        c.lon,
+                        c.start_ele,
+                        c.end_ele,
+                        c.gain,
+                        c.end_km - c.start_km,
+                        c.gradient,
+                        date,
+                    )
+                    .map_err(err500)?,
             };
 
-            state.db.add_attempt(climb_id, date, file_name.as_deref(), None).map_err(err500)?;
+            state
+                .db
+                .add_attempt(climb_id, date, file_name.as_deref(), None)
+                .map_err(err500)?;
             total_climbs += 1;
         }
     }
 
-    Ok(Json(serde_json::json!({ "climbs_processed": total_climbs })))
+    Ok(Json(
+        serde_json::json!({ "climbs_processed": total_climbs }),
+    ))
 }
 
 async fn list_climbs(
@@ -108,10 +139,15 @@ async fn get_climb(
     user: CurrentUser,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let climb = state.db.get_climb(user.id, id).map_err(err500)?
+    let climb = state
+        .db
+        .get_climb(user.id, id)
+        .map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Climb not found".into()))?;
     let attempts = state.db.get_attempts(id).map_err(err500)?;
-    Ok(Json(serde_json::json!({ "climb": climb, "attempts": attempts })))
+    Ok(Json(
+        serde_json::json!({ "climb": climb, "attempts": attempts }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -125,8 +161,15 @@ async fn rename_climb(
     Path(id): Path<i64>,
     Json(body): Json<RenameBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let updated = state.db.rename_climb(user.id, id, &body.name).map_err(err500)?;
-    if updated { Ok(StatusCode::NO_CONTENT) } else { Err((StatusCode::NOT_FOUND, "Not found".into())) }
+    let updated = state
+        .db
+        .rename_climb(user.id, id, &body.name)
+        .map_err(err500)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Not found".into()))
+    }
 }
 
 async fn get_stats(
@@ -167,7 +210,12 @@ async fn strava_sync(
     Ok(Json(serde_json::json!({ "status": "sync_started" })))
 }
 
-async fn run_sync(state: &SharedState, auth: &AuthState, user_id: i64, token: &str) -> anyhow::Result<()> {
+async fn run_sync(
+    state: &SharedState,
+    auth: &AuthState,
+    user_id: i64,
+    token: &str,
+) -> anyhow::Result<()> {
     let mut page = 1u32;
     loop {
         let activities = strava::fetch_activities(token, page).await?;
@@ -180,12 +228,30 @@ async fn run_sync(state: &SharedState, auth: &AuthState, user_id: i64, token: &s
                 continue;
             }
 
-            if !matches!(activity.activity_type.as_str(), "Ride" | "VirtualRide" | "GravelRide" | "EBikeRide" | "Run" | "TrailRun" | "Hike" | "Walk") {
+            if !matches!(
+                activity.activity_type.as_str(),
+                "Ride"
+                    | "VirtualRide"
+                    | "GravelRide"
+                    | "EBikeRide"
+                    | "Run"
+                    | "TrailRun"
+                    | "Hike"
+                    | "Walk"
+            ) {
                 state.db.mark_activity_synced(user_id, activity.id)?;
                 continue;
             }
 
-            process_activity(state, auth, user_id, activity.id, &activity.name, &activity.start_date_local).await?;
+            process_activity(
+                state,
+                auth,
+                user_id,
+                activity.id,
+                &activity.name,
+                &activity.start_date_local,
+            )
+            .await?;
             state.db.mark_activity_synced(user_id, activity.id)?;
         }
 
@@ -198,16 +264,28 @@ async fn run_sync(state: &SharedState, auth: &AuthState, user_id: i64, token: &s
     Ok(())
 }
 
-async fn process_activity(state: &SharedState, auth: &AuthState, user_id: i64, activity_id: i64, name: &str, start_date: &str) -> anyhow::Result<()> {
-    let tokens = auth.db.get_strava_tokens(user_id)?
+async fn process_activity(
+    state: &SharedState,
+    auth: &AuthState,
+    user_id: i64,
+    activity_id: i64,
+    name: &str,
+    start_date: &str,
+) -> anyhow::Result<()> {
+    let tokens = auth
+        .db
+        .get_strava_tokens(user_id)?
         .ok_or_else(|| anyhow::anyhow!("No Strava tokens for user {user_id}"))?;
 
     let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
     let streams = strava::fetch_streams(&access_token, activity_id).await?;
-    let Some(points) = streams else { return Ok(()); };
+    let Some(points) = streams else {
+        return Ok(());
+    };
 
-    let profile: Vec<climb::ProfilePoint> = points.iter()
+    let profile: Vec<climb::ProfilePoint> = points
+        .iter()
         .map(|p| (p.distance_km, p.elevation, p.lat, p.lon))
         .collect();
 
@@ -219,8 +297,15 @@ async fn process_activity(state: &SharedState, auth: &AuthState, user_id: i64, a
         let climb_id = match existing {
             Some(id) => id,
             None => state.db.insert_climb(
-                user_id, c.lat, c.lon, c.start_ele, c.end_ele, c.gain,
-                c.end_km - c.start_km, c.gradient, date,
+                user_id,
+                c.lat,
+                c.lon,
+                c.start_ele,
+                c.end_ele,
+                c.gain,
+                c.end_km - c.start_km,
+                c.gradient,
+                date,
             )?,
         };
         state.db.add_attempt(climb_id, date, Some(name), None)?;
@@ -229,11 +314,19 @@ async fn process_activity(state: &SharedState, auth: &AuthState, user_id: i64, a
 }
 
 async fn get_valid_token(auth: &AuthState, user_id: i64) -> Result<String, (StatusCode, String)> {
-    let tokens = auth.db.get_strava_tokens(user_id).map_err(err500)?
+    let tokens = auth
+        .db
+        .get_strava_tokens(user_id)
+        .map_err(err500)?
         .ok_or((StatusCode::UNAUTHORIZED, "Strava not connected".into()))?;
     auth::ensure_fresh_token(auth, user_id, &tokens)
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Token refresh failed: {e}")))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Token refresh failed: {e}"),
+            )
+        })
 }
 
 // ── Strava webhooks ──
@@ -258,7 +351,9 @@ async fn strava_webhook_verify(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    Ok(Json(serde_json::json!({ "hub.challenge": params.challenge })))
+    Ok(Json(
+        serde_json::json!({ "hub.challenge": params.challenge }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -279,16 +374,29 @@ async fn strava_webhook_event(
     }
 
     tokio::spawn(async move {
-        if let Err(e) = handle_webhook_activity(&state, &auth, event.owner_id, event.object_id).await {
-            tracing::error!(athlete_id = event.owner_id, activity_id = event.object_id, "webhook processing failed: {e}");
+        if let Err(e) =
+            handle_webhook_activity(&state, &auth, event.owner_id, event.object_id).await
+        {
+            tracing::error!(
+                athlete_id = event.owner_id,
+                activity_id = event.object_id,
+                "webhook processing failed: {e}"
+            );
         }
     });
 
     StatusCode::OK
 }
 
-async fn handle_webhook_activity(state: &SharedState, auth: &AuthState, athlete_id: i64, activity_id: i64) -> anyhow::Result<()> {
-    let (user_id, tokens) = auth.db.get_strava_tokens_by_athlete(athlete_id)?
+async fn handle_webhook_activity(
+    state: &SharedState,
+    auth: &AuthState,
+    athlete_id: i64,
+    activity_id: i64,
+) -> anyhow::Result<()> {
+    let (user_id, tokens) = auth
+        .db
+        .get_strava_tokens_by_athlete(athlete_id)?
         .ok_or_else(|| anyhow::anyhow!("No user linked to athlete {athlete_id}"))?;
 
     if state.db.is_activity_synced(user_id, activity_id)? {
@@ -298,14 +406,27 @@ async fn handle_webhook_activity(state: &SharedState, auth: &AuthState, athlete_
     let access_token = auth::ensure_fresh_token(auth, user_id, &tokens).await?;
 
     let activity = strava::fetch_activity(&access_token, activity_id).await?;
-    let Some(activity) = activity else { return Ok(()); };
+    let Some(activity) = activity else {
+        return Ok(());
+    };
 
-    if !matches!(activity.activity_type.as_str(), "Ride" | "VirtualRide" | "GravelRide" | "EBikeRide" | "Run" | "TrailRun" | "Hike" | "Walk") {
+    if !matches!(
+        activity.activity_type.as_str(),
+        "Ride" | "VirtualRide" | "GravelRide" | "EBikeRide" | "Run" | "TrailRun" | "Hike" | "Walk"
+    ) {
         state.db.mark_activity_synced(user_id, activity_id)?;
         return Ok(());
     }
 
-    process_activity(state, auth, user_id, activity_id, &activity.name, &activity.start_date_local).await?;
+    process_activity(
+        state,
+        auth,
+        user_id,
+        activity_id,
+        &activity.name,
+        &activity.start_date_local,
+    )
+    .await?;
     state.db.mark_activity_synced(user_id, activity_id)?;
     tracing::info!(user_id, activity_id, "webhook: processed activity");
     Ok(())
@@ -321,7 +442,10 @@ async fn public_climbs(
     State(state): State<SharedState>,
     Path(share_id): Path<String>,
 ) -> Result<Json<Vec<super::db::ClimbRecord>>, (StatusCode, String)> {
-    let user_id = state.db.get_user_by_share_id(&share_id).map_err(err500)?
+    let user_id = state
+        .db
+        .get_user_by_share_id(&share_id)
+        .map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Not found".into()))?;
     state.db.get_climbs(user_id).map(Json).map_err(err500)
 }
@@ -330,7 +454,10 @@ async fn public_stats(
     State(state): State<SharedState>,
     Path(share_id): Path<String>,
 ) -> Result<Json<super::db::Stats>, (StatusCode, String)> {
-    let user_id = state.db.get_user_by_share_id(&share_id).map_err(err500)?
+    let user_id = state
+        .db
+        .get_user_by_share_id(&share_id)
+        .map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Not found".into()))?;
     state.db.get_stats(user_id).map(Json).map_err(err500)
 }

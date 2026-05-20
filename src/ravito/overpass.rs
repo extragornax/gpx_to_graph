@@ -104,8 +104,8 @@ impl OverpassCache {
         let (min_lat, min_lon, max_lat, max_lon) = bbox(raw);
         // Inflate the bbox by enough degrees to cover the corridor.
         let pad_lat = corridor_m / 111_000.0;
-        let pad_lon = corridor_m
-            / (111_000.0 * ((min_lat + max_lat) / 2.0).to_radians().cos().max(0.1));
+        let pad_lon =
+            corridor_m / (111_000.0 * ((min_lat + max_lat) / 2.0).to_radians().cos().max(0.1));
         let bbox_str = format!(
             "{:.4},{:.4},{:.4},{:.4}",
             min_lat - pad_lat,
@@ -178,10 +178,18 @@ fn bbox(raw: &[RawPoint]) -> (f64, f64, f64, f64) {
     let mut max_lat = f64::NEG_INFINITY;
     let mut max_lon = f64::NEG_INFINITY;
     for p in raw {
-        if p.lat < min_lat { min_lat = p.lat; }
-        if p.lon < min_lon { min_lon = p.lon; }
-        if p.lat > max_lat { max_lat = p.lat; }
-        if p.lon > max_lon { max_lon = p.lon; }
+        if p.lat < min_lat {
+            min_lat = p.lat;
+        }
+        if p.lon < min_lon {
+            min_lon = p.lon;
+        }
+        if p.lat > max_lat {
+            max_lat = p.lat;
+        }
+        if p.lon > max_lon {
+            max_lon = p.lon;
+        }
     }
     (min_lat, min_lon, max_lat, max_lon)
 }
@@ -204,13 +212,12 @@ fn parse_overpass(body: &str) -> Result<Vec<Poi>> {
                 )
             }
         };
-        let (Some(lat), Some(lon)) = (lat, lon) else { continue };
+        let (Some(lat), Some(lon)) = (lat, lon) else {
+            continue;
+        };
         let osm_id = el.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
         let empty = serde_json::Map::new();
-        let tags = el
-            .get("tags")
-            .and_then(|t| t.as_object())
-            .unwrap_or(&empty);
+        let tags = el.get("tags").and_then(|t| t.as_object()).unwrap_or(&empty);
         let kind = PoiKind::from_tags(tags);
         let name = tags.get("name").and_then(|v| v.as_str()).map(String::from);
         let opening_hours = tags

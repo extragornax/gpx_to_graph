@@ -5,16 +5,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
+    Router,
     body::Body,
     extract::{DefaultBodyLimit, Json, Multipart, Path as AxumPath, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Router,
 };
 use base64::Engine;
-use gpx_to_graph::{generate, GeneratedOutput, GraphOptions};
-use serde_json::{json, Value};
+use gpx_to_graph::{GeneratedOutput, GraphOptions, generate};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 struct MergeSession {
@@ -526,7 +526,10 @@ async fn static_themes_css() -> Response {
 async fn static_theme_js() -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )
         .header(header::CACHE_CONTROL, "public, max-age=300")
         .body(Body::from(THEME_JS))
         .expect("valid response")
@@ -554,7 +557,10 @@ async fn pwa_manifest() -> Response {
 async fn pwa_sw() -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )
         .header(header::CACHE_CONTROL, "no-cache")
         .header("Service-Worker-Allowed", "/")
         .body(Body::from(PWA_SW))
@@ -607,7 +613,10 @@ async fn download_android_apk() -> Response {
     match tokio::fs::read(&path).await {
         Ok(bytes) => Response::builder()
             .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/vnd.android.package-archive")
+            .header(
+                header::CONTENT_TYPE,
+                "application/vnd.android.package-archive",
+            )
             .header(
                 header::CONTENT_DISPOSITION,
                 "attachment; filename=\"gpx-tools.apk\"",
@@ -629,7 +638,11 @@ async fn download_android_status() -> Response {
     let exists = tokio::fs::metadata(apk_dir().join("app-release-signed.apk"))
         .await
         .is_ok();
-    let body = if exists { "{\"available\":true}" } else { "{\"available\":false}" };
+    let body = if exists {
+        "{\"available\":true}"
+    } else {
+        "{\"available\":false}"
+    };
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
@@ -826,7 +839,10 @@ async fn static_recents_css() -> Response {
 async fn static_recents_js() -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )
         .header(header::CACHE_CONTROL, "public, max-age=300")
         .body(Body::from(RECENTS_JS))
         .expect("valid response")
@@ -941,8 +957,10 @@ async fn generate_handler(mut multipart: Multipart) -> Response {
                     if data.len() > MAX_FILE {
                         return (
                             StatusCode::BAD_REQUEST,
-                            format!("GPX file is too large ({:.1} MB, max 100 MB).",
-                                    data.len() as f64 / (1024.0 * 1024.0)),
+                            format!(
+                                "GPX file is too large ({:.1} MB, max 100 MB).",
+                                data.len() as f64 / (1024.0 * 1024.0)
+                            ),
                         )
                             .into_response();
                     }
@@ -1046,8 +1064,7 @@ fn extract_gpx_name(data: &[u8]) -> Option<String> {
     if let (Some(start), Some(end)) = (
         find_after(data, b"<metadata", 0),
         find_after(data, b"</metadata>", 0),
-    )
-        && end > start
+    ) && end > start
         && let Some(n) = extract_tag_text(&data[start..end], b"name").and_then(clean)
     {
         return Some(n);
@@ -1137,8 +1154,7 @@ async fn cleanup_shares() {
             && let Ok(v) = serde_json::from_str::<Value>(&meta_str)
             && let Some(created_at) = v.get("created_at").and_then(|v| v.as_u64())
         {
-            let created =
-                std::time::UNIX_EPOCH + std::time::Duration::from_secs(created_at);
+            let created = std::time::UNIX_EPOCH + std::time::Duration::from_secs(created_at);
             if now
                 .duration_since(created)
                 .map(|d| d.as_secs())
@@ -1210,7 +1226,10 @@ async fn share_file(AxumPath((id, file)): AxumPath<(String, String)>) -> Respons
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
-        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Content-Length, Content-Type")
+        .header(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            "Content-Length, Content-Type",
+        )
         .body(Body::from(bytes))
         .expect("valid response")
 }
@@ -1251,10 +1270,7 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     let num_climbs = meta.get("num_climbs").and_then(|v| v.as_u64()).unwrap_or(0);
-    let created_at = meta
-        .get("created_at")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let created_at = meta.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
     let expires_at = created_at + SHARE_TTL_SECS;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1611,8 +1627,8 @@ fn build_share_page(id: &str, meta: &Value, base_url: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn parse_fit_trkpts(data: &[u8]) -> Result<Vec<TrackPoint>, String> {
-    use fitparser::profile::MesgNum;
     use fitparser::Value;
+    use fitparser::profile::MesgNum;
     use std::io::Cursor;
 
     const SC_TO_DEG: f64 = 180.0 / 2_147_483_648.0;
@@ -1695,12 +1711,14 @@ fn trackpoints_to_gpx_bytes(pts: &[TrackPoint]) -> Vec<u8> {
     use std::fmt::Write;
 
     let mut xml = String::with_capacity(pts.len() * 200);
-    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    xml.push_str(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
         <gpx version=\"1.1\" creator=\"gpx_to_graph\"\n  \
         xmlns=\"http://www.topografix.com/GPX/1/1\"\n  \
         xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n  \
         xmlns:gpxpx=\"http://www.garmin.com/xmlschemas/PowerExtension/v1\">\n\
-        <trk><trkseg>\n");
+        <trk><trkseg>\n",
+    );
 
     for p in pts {
         let _ = write!(xml, "<trkpt lat=\"{:.7}\" lon=\"{:.7}\">", p.lat, p.lon);
@@ -1730,7 +1748,11 @@ fn trackpoints_to_gpx_bytes(pts: &[TrackPoint]) -> Vec<u8> {
                 xml.push_str("</gpxtpx:TrackPointExtension>");
             }
             if let Some(v) = p.power {
-                let _ = write!(xml, "<gpxpx:PowerExtension><gpxpx:PowerInWatts>{}</gpxpx:PowerInWatts></gpxpx:PowerExtension>", v as u16);
+                let _ = write!(
+                    xml,
+                    "<gpxpx:PowerExtension><gpxpx:PowerInWatts>{}</gpxpx:PowerInWatts></gpxpx:PowerExtension>",
+                    v as u16
+                );
             }
             xml.push_str("</extensions>");
         }
@@ -2000,7 +2022,7 @@ fn find_trkseg_open(data: &[u8], from: usize) -> Option<usize> {
         let after = data.get(abs + b"<trkseg".len()).copied();
         match after {
             Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/') => {
-                return Some(abs)
+                return Some(abs);
             }
             _ => i = abs + b"<trkseg".len(),
         }
@@ -2138,9 +2160,14 @@ fn ensure_gpx_namespaces(data: Vec<u8>) -> Vec<u8> {
 
     let mut insertions = String::new();
     for (prefix, decl) in ns {
-        let xmlns_key = format!("xmlns:{}=", std::str::from_utf8(&prefix[..prefix.len() - 1]).unwrap_or(""));
+        let xmlns_key = format!(
+            "xmlns:{}=",
+            std::str::from_utf8(&prefix[..prefix.len() - 1]).unwrap_or("")
+        );
         if data.windows(prefix.len()).any(|w| w == *prefix)
-            && !header.windows(xmlns_key.len()).any(|w| w == xmlns_key.as_bytes())
+            && !header
+                .windows(xmlns_key.len())
+                .any(|w| w == xmlns_key.as_bytes())
         {
             insertions.push_str(decl);
         }
@@ -2586,8 +2613,11 @@ async fn merge_handler(mut multipart: Multipart) -> Response {
                         let label = filename.as_deref().unwrap_or("(unnamed)");
                         return (
                             StatusCode::BAD_REQUEST,
-                            format!("File '{}' is too large ({:.1} MB, max 100 MB).",
-                                    label, data.len() as f64 / (1024.0 * 1024.0)),
+                            format!(
+                                "File '{}' is too large ({:.1} MB, max 100 MB).",
+                                label,
+                                data.len() as f64 / (1024.0 * 1024.0)
+                            ),
                         )
                             .into_response();
                     }
@@ -2697,8 +2727,11 @@ async fn merge_upload_handler(
                         let label = filename.as_deref().unwrap_or("(unnamed)");
                         return (
                             StatusCode::BAD_REQUEST,
-                            format!("File '{}' is too large ({:.1} MB, max 100 MB).",
-                                    label, data.len() as f64 / (1024.0 * 1024.0)),
+                            format!(
+                                "File '{}' is too large ({:.1} MB, max 100 MB).",
+                                label,
+                                data.len() as f64 / (1024.0 * 1024.0)
+                            ),
                         )
                             .into_response();
                     }
@@ -2728,7 +2761,10 @@ async fn merge_upload_handler(
     });
 
     if session.files.len() >= 5 {
-        return (StatusCode::BAD_REQUEST, "Maximum 5 files per merge session.".to_string())
+        return (
+            StatusCode::BAD_REQUEST,
+            "Maximum 5 files per merge session.".to_string(),
+        )
             .into_response();
     }
 
@@ -2745,7 +2781,9 @@ async fn merge_run_handler(
 ) -> Response {
     let sid = match body.get("session").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => return (StatusCode::BAD_REQUEST, "Missing session id.".to_string()).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, "Missing session id.".to_string()).into_response();
+        }
     };
     let creator = body
         .get("creator")
@@ -2758,8 +2796,11 @@ async fn merge_run_handler(
         match map.remove(&sid) {
             Some(s) => s.files,
             None => {
-                return (StatusCode::BAD_REQUEST, "Unknown or expired session.".to_string())
-                    .into_response()
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Unknown or expired session.".to_string(),
+                )
+                    .into_response();
             }
         }
     };
@@ -2855,7 +2896,8 @@ async fn main() {
     );
 
     // --- Ravito service ---
-    let ravito_db_path = std::env::var("RAVITO_DB_PATH").unwrap_or_else(|_| "data/ravito.db".into());
+    let ravito_db_path =
+        std::env::var("RAVITO_DB_PATH").unwrap_or_else(|_| "data/ravito.db".into());
     if let Some(parent) = std::path::Path::new(&ravito_db_path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -2871,28 +2913,20 @@ async fn main() {
     if let Some(parent) = std::path::Path::new(&col_db_path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let col_db = gpx_to_graph::col::db::Db::open(&col_db_path)
-        .expect("failed to open col db");
+    let col_db = gpx_to_graph::col::db::Db::open(&col_db_path).expect("failed to open col db");
     col_db.migrate().expect("failed to migrate col db");
-    let col_state: gpx_to_graph::col::SharedState = std::sync::Arc::new(
-        gpx_to_graph::col::AppState {
-            db: col_db,
-        },
-    );
+    let col_state: gpx_to_graph::col::SharedState =
+        std::sync::Arc::new(gpx_to_graph::col::AppState { db: col_db });
 
     // --- Trip service ---
     let trip_db_path = std::env::var("TRIP_DB_PATH").unwrap_or_else(|_| "data/trip.db".into());
     if let Some(parent) = std::path::Path::new(&trip_db_path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let trip_db = gpx_to_graph::trip::db::Db::open(&trip_db_path)
-        .expect("failed to open trip db");
+    let trip_db = gpx_to_graph::trip::db::Db::open(&trip_db_path).expect("failed to open trip db");
     trip_db.migrate().expect("failed to migrate trip db");
-    let trip_state: gpx_to_graph::trip::SharedState = std::sync::Arc::new(
-        gpx_to_graph::trip::AppState {
-            db: trip_db,
-        },
-    );
+    let trip_state: gpx_to_graph::trip::SharedState =
+        std::sync::Arc::new(gpx_to_graph::trip::AppState { db: trip_db });
 
     // --- Auth service ---
     let auth_db_path = std::env::var("AUTH_DB_PATH").unwrap_or_else(|_| "data/auth.db".into());
@@ -2962,7 +2996,5 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind to address");
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }

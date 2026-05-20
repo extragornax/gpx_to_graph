@@ -1,14 +1,14 @@
 use axum::extract::{Multipart, Path, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::Html;
 use axum::response::IntoResponse;
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use axum::response::Html;
 use serde::Deserialize;
 use std::io::Cursor;
 
-use crate::auth::CurrentUser;
 use super::SharedState;
+use crate::auth::CurrentUser;
 
 const INDEX_HTML: &str = include_str!("../../static/trip/index.html");
 const BASE_CSS: &str = include_str!("../../static/toolkit/app.css");
@@ -71,8 +71,8 @@ async fn create_trip(
     }
 
     let name = file_name.trim_end_matches(".gpx").to_string();
-    let points_json =
-        serde_json::to_string(&points).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let points_json = serde_json::to_string(&points)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let boundaries: Vec<usize> = Vec::new();
     let boundaries_json = serde_json::to_string(&boundaries).unwrap();
 
@@ -176,10 +176,10 @@ async fn download_day_gpx(
         .map_err(err500)?
         .ok_or((StatusCode::NOT_FOUND, "Trip not found".into()))?;
 
-    let points: Vec<TrackPoint> =
-        serde_json::from_str(&points_json).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let boundaries: Vec<usize> =
-        serde_json::from_str(&boundaries_json).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let points: Vec<TrackPoint> = serde_json::from_str(&points_json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let boundaries: Vec<usize> = serde_json::from_str(&boundaries_json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let num_days = boundaries.len() + 1;
     if day == 0 || day > num_days {

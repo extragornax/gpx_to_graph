@@ -159,9 +159,13 @@ impl Activity {
         let name = record.get(2).unwrap_or("").trim().to_string();
         let activity_type = ActivityType::parse(record.get(3).unwrap_or(""));
 
-        let elapsed_time = opt_f64(record, 15).or_else(|| opt_f64(record, 5)).unwrap_or(0.0);
+        let elapsed_time = opt_f64(record, 15)
+            .or_else(|| opt_f64(record, 5))
+            .unwrap_or(0.0);
         let moving_time = opt_f64(record, 16).unwrap_or(elapsed_time);
-        let distance_meters = opt_f64(record, 17).or_else(|| opt_f64(record, 6)).unwrap_or(0.0);
+        let distance_meters = opt_f64(record, 17)
+            .or_else(|| opt_f64(record, 6))
+            .unwrap_or(0.0);
         let average_speed = opt_f64(record, 19).unwrap_or(0.0);
 
         let commute_str = record.get(50).unwrap_or("").trim().to_lowercase();

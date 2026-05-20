@@ -4,13 +4,16 @@ use axum::response::{Html, IntoResponse, Redirect};
 use axum::{Extension, Json};
 use serde::Deserialize;
 
-use super::{strava, AuthState, CurrentUser};
+use super::{AuthState, CurrentUser, strava};
 
 const LOGIN_HTML: &str = include_str!("../../static/auth/index.html");
 const APP_CSS: &str = include_str!("../../static/auth/app.css");
 
 pub async fn login_page() -> Html<String> {
-    Html(LOGIN_HTML.replace("<!-- CSS_PLACEHOLDER -->", &format!("<style>{APP_CSS}</style>")))
+    Html(LOGIN_HTML.replace(
+        "<!-- CSS_PLACEHOLDER -->",
+        &format!("<style>{APP_CSS}</style>"),
+    ))
 }
 
 pub async fn challenge() -> Json<crate::pow::Challenge> {
@@ -32,9 +35,17 @@ pub async fn register(
         return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
     }
     if body.username.len() < 2 || body.password.len() < 6 {
-        return Err((StatusCode::BAD_REQUEST, "Username min 2 chars, password min 6 chars".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Username min 2 chars, password min 6 chars".into(),
+        ));
     }
-    if auth.db.get_user_by_username(&body.username).map_err(err500)?.is_some() {
+    if auth
+        .db
+        .get_user_by_username(&body.username)
+        .map_err(err500)?
+        .is_some()
+    {
         return Err((StatusCode::CONFLICT, "Username taken".into()));
     }
 
@@ -57,7 +68,9 @@ pub async fn login(
     if !crate::pow::verify(&body.pow) {
         return Err((StatusCode::BAD_REQUEST, "Invalid challenge".into()));
     }
-    let (user_id, hash) = auth.db.get_user_by_username(&body.username)
+    let (user_id, hash) = auth
+        .db
+        .get_user_by_username(&body.username)
         .map_err(err500)?
         .ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
 
@@ -85,7 +98,9 @@ pub async fn logout(
     let mut h = HeaderMap::new();
     h.insert(
         "set-cookie",
-        "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".parse().unwrap(),
+        "session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+            .parse()
+            .unwrap(),
     );
     Ok((h, StatusCode::NO_CONTENT))
 }
@@ -106,9 +121,13 @@ pub async fn strava_redirect(
     _user: CurrentUser,
     Query(params): Query<StravaRedirectParams>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let config = auth.strava_config.as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "Strava integration not configured".into()))?;
-    Ok(Redirect::temporary(&config.authorize_url(params.redirect.as_deref())))
+    let config = auth.strava_config.as_ref().ok_or((
+        StatusCode::NOT_FOUND,
+        "Strava integration not configured".into(),
+    ))?;
+    Ok(Redirect::temporary(
+        &config.authorize_url(params.redirect.as_deref()),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -122,11 +141,19 @@ pub async fn strava_callback(
     user: CurrentUser,
     Query(params): Query<StravaCallbackParams>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let config = auth.strava_config.as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "Strava integration not configured".into()))?;
+    let config = auth.strava_config.as_ref().ok_or((
+        StatusCode::NOT_FOUND,
+        "Strava integration not configured".into(),
+    ))?;
 
-    let token = strava::exchange_code(config, &params.code).await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Strava token exchange failed: {e}")))?;
+    let token = strava::exchange_code(config, &params.code)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Strava token exchange failed: {e}"),
+            )
+        })?;
 
     let name = match (&token.athlete.firstname, &token.athlete.lastname) {
         (Some(f), Some(l)) => Some(format!("{f} {l}")),
@@ -134,10 +161,16 @@ pub async fn strava_callback(
         _ => None,
     };
 
-    auth.db.save_strava_tokens(
-        user.id, &token.access_token, &token.refresh_token,
-        token.expires_at, token.athlete.id, name.as_deref(),
-    ).map_err(err500)?;
+    auth.db
+        .save_strava_tokens(
+            user.id,
+            &token.access_token,
+            &token.refresh_token,
+            token.expires_at,
+            token.athlete.id,
+            name.as_deref(),
+        )
+        .map_err(err500)?;
 
     let redirect_to = params.state.as_deref().unwrap_or("/");
     Ok(Redirect::temporary(redirect_to))
@@ -170,14 +203,17 @@ fn session_headers(token: &str) -> HeaderMap {
     headers.insert(
         "set-cookie",
         format!("session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
-            .parse().unwrap(),
+            .parse()
+            .unwrap(),
     );
     headers
 }
 
 fn extract_session_cookie(headers: &HeaderMap) -> Option<&str> {
-    headers.get("cookie")?
-        .to_str().ok()?
+    headers
+        .get("cookie")?
+        .to_str()
+        .ok()?
         .split(';')
         .filter_map(|s| s.trim().strip_prefix("session="))
         .next()

@@ -3,11 +3,15 @@ mod handlers;
 pub mod hours;
 pub mod overpass;
 
-use std::sync::Arc;
-use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
-use tower_http::trace::TraceLayer;
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+};
 use handlers::AppState;
 use overpass::OverpassCache;
+use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 
 pub fn router(cache: Arc<OverpassCache>) -> Router {
     let state = AppState { cache };

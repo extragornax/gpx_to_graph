@@ -2,12 +2,16 @@ use std::fs;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Parser;
-use gpx_to_graph::{generate, GraphOptions};
+use gpx_to_graph::{GraphOptions, generate};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Generate a bike-friendly route graph image from GPX")]
+#[command(
+    author,
+    version,
+    about = "Generate a bike-friendly route graph image from GPX"
+)]
 struct Args {
     /// Input GPX file
     #[arg(short, long)]
@@ -79,8 +83,16 @@ fn main() -> Result<()> {
 
     let result = generate(reader, &opts)?;
 
-    let stem = args.output.file_stem().unwrap_or_default().to_string_lossy();
-    let ext = args.output.extension().unwrap_or_default().to_string_lossy();
+    let stem = args
+        .output
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let ext = args
+        .output
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy();
     let parent = args.output.parent().unwrap_or(std::path::Path::new("."));
 
     if result.graph_images.len() == 1 {

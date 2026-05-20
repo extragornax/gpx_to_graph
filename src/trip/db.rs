@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 
 pub struct Db {
@@ -92,8 +92,7 @@ impl Db {
         let mut trips = Vec::new();
         for (id, name, points_json, boundaries_json, created_at) in rows {
             let (total_km, total_gain) = compute_trip_stats(&points_json);
-            let boundaries: Vec<usize> =
-                serde_json::from_str(&boundaries_json).unwrap_or_default();
+            let boundaries: Vec<usize> = serde_json::from_str(&boundaries_json).unwrap_or_default();
             trips.push(TripSummary {
                 id,
                 name,
@@ -153,12 +152,7 @@ impl Db {
         }
     }
 
-    pub fn update_trip_name(
-        &self,
-        user_id: i64,
-        trip_id: i64,
-        name: &str,
-    ) -> anyhow::Result<bool> {
+    pub fn update_trip_name(&self, user_id: i64, trip_id: i64, name: &str) -> anyhow::Result<bool> {
         let conn = self.conn.lock().unwrap();
         let n = conn.execute(
             "UPDATE trips SET name = ?3 WHERE id = ?1 AND user_id = ?2",

@@ -1,14 +1,14 @@
 pub mod db;
-pub mod strava;
 mod handlers;
+pub mod strava;
 
 use std::sync::Arc;
 
-use axum::extract::FromRequestParts;
-use axum::http::request::Parts;
-use axum::http::StatusCode;
-use axum::routing::{delete, get, post};
 use axum::Router;
+use axum::extract::FromRequestParts;
+use axum::http::StatusCode;
+use axum::http::request::Parts;
+use axum::routing::{delete, get, post};
 
 pub struct AuthService {
     pub db: db::Db,
@@ -26,28 +26,39 @@ impl<S: Send + Sync> FromRequestParts<S> for CurrentUser {
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let auth: &AuthState = parts.extensions.get()
+        let auth: &AuthState = parts
+            .extensions
+            .get()
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let cookie = parts.headers
+        let cookie = parts
+            .headers
             .get("cookie")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
-        let token = cookie.split(';')
+        let token = cookie
+            .split(';')
             .filter_map(|s| s.trim().strip_prefix("session="))
             .next()
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
-        let user_id = auth.db.get_session(token)
+        let user_id = auth
+            .db
+            .get_session(token)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
-        let username = auth.db.get_username(user_id)
+        let username = auth
+            .db
+            .get_username(user_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
-        Ok(CurrentUser { id: user_id, username })
+        Ok(CurrentUser {
+            id: user_id,
+            username,
+        })
     }
 }
 
@@ -108,12 +119,18 @@ pub async fn ensure_fresh_token(
     if now < tokens.expires_at - 60 {
         return Ok(tokens.access_token.clone());
     }
-    let config = auth.strava_config.as_ref()
+    let config = auth
+        .strava_config
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Strava not configured"))?;
     let refreshed = strava::refresh_token(config, &tokens.refresh_token).await?;
     auth.db.save_strava_tokens(
-        user_id, &refreshed.access_token, &refreshed.refresh_token,
-        refreshed.expires_at, tokens.athlete_id, tokens.athlete_name.as_deref(),
+        user_id,
+        &refreshed.access_token,
+        &refreshed.refresh_token,
+        refreshed.expires_at,
+        tokens.athlete_id,
+        tokens.athlete_name.as_deref(),
     )?;
     Ok(refreshed.access_token)
 }

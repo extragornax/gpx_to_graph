@@ -1,8 +1,9 @@
-mod upload;
 mod activities;
 mod dashboard;
+mod map;
 mod performance;
 mod training;
+mod upload;
 mod weather;
 
 use super::state::SharedState;
@@ -19,8 +20,14 @@ pub fn router() -> Router<SharedState> {
         .route("/dashboard/monthly", get(dashboard::monthly))
         .route("/dashboard/streaks", get(dashboard::streaks))
         .route("/performance/trends", get(performance::trends))
-        .route("/performance/personal_bests", get(performance::personal_bests))
-        .route("/performance/fitness_curve", get(performance::fitness_curve))
+        .route(
+            "/performance/personal_bests",
+            get(performance::personal_bests),
+        )
+        .route(
+            "/performance/fitness_curve",
+            get(performance::fitness_curve),
+        )
         .route("/performance/power_curve", get(performance::power_curve))
         .route("/performance/hr_zones", get(performance::hr_zones))
         .route("/weather/correlation", get(weather::correlation))
@@ -29,4 +36,6 @@ pub fn router() -> Router<SharedState> {
         .route("/training/weekly", get(training::weekly))
         .route("/training/fitness_fatigue", get(training::fitness_fatigue))
         .route("/training/volume", get(training::volume))
+        .route("/map/activities", get(map::strava_map_access))
+        .route("/map/activity/{id}", get(map::strava_map_points))
 }
