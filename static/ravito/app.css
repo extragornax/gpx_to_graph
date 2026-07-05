@@ -312,7 +312,7 @@ main {
 
 .row3 {
   display: grid;
-  grid-template-columns: 1.15fr 1fr 1fr;
+  grid-template-columns: 1.15fr 1fr 1fr 1fr;
   gap: 2rem;
   margin: 0.25rem 0 1.5rem;
 }

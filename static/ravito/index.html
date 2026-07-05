@@ -88,10 +88,17 @@
           <span class="unit">mètres</span>
         </div>
       </div>
+      <div class="field">
+        <label for="skip"><span class="num">⑤</span> Ignorer les premiers</label>
+        <div class="input-row">
+          <input type="number" id="skip" value="0" min="0" step="5">
+          <span class="unit">km</span>
+        </div>
+      </div>
     </div>
 
     <fieldset class="kinds">
-      <legend><span class="num">⑤</span> Chercher</legend>
+      <legend><span class="num">⑥</span> Chercher</legend>
       <label>
         <input type="checkbox" class="kind" value="bakery" checked>
         <span class="mark"></span>
@@ -262,11 +269,12 @@ async function submit(ev) {
     const start = local ? new Date(local).toISOString() : null;
     const speed_kmh = Number($('#speed').value) || 22;
     const corridor_m = Number($('#corridor').value) || 120;
+    const skip_km = Math.max(0, Number($('#skip').value) || 0);
     const kinds = [...document.querySelectorAll('.kind:checked')].map(k => k.value);
     const resp = await fetch(_BASE + '/api/analyze', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ gpx, start, speed_kmh, corridor_m, kinds }),
+      body: JSON.stringify({ gpx, start, speed_kmh, corridor_m, kinds, skip_km }),
     });
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
@@ -311,6 +319,7 @@ function render(data) {
     <div><dt>Durée</dt><dd>${hoursMins(durationMin)}</dd></div>
     <div><dt>Vitesse</dt><dd>${data.speed_kmh.toFixed(0)}<span class="unit-sm">km/h</span></dd></div>
     <div><dt>Corridor</dt><dd>±${data.corridor_m.toFixed(0)}<span class="unit-sm">m</span></dd></div>
+    ${data.skip_km > 0 ? `<div><dt>Ignoré</dt><dd>0–${data.skip_km.toFixed(0)}<span class="unit-sm">km</span></dd></div>` : ''}
     <div><dt>Ravitos</dt><dd class="big">${data.pois.length}</dd></div>
     <div><dt>Ouverts / Fermés</dt><dd><span class="st-inline st-open-inline">${openCount}</span> <span class="sep">/</span> <span class="st-inline st-closed-inline">${closedCount}</span></dd></div>
   `;
@@ -583,7 +592,7 @@ tr:nth-child(even) td{background:#f8f8f8}
 <p class="meta">
   Départ ${fmtDate(startDate)} ${fmtTime(startDate)} · Arrivée ${fmtDate(endDate)} ${fmtTime(endDate)} ·
   ${data.speed_kmh.toFixed(0)} km/h · corridor ±${data.corridor_m.toFixed(0)} m ·
-  ${data.pois.length} arrêts
+  ${data.skip_km > 0 ? `premiers ${data.skip_km.toFixed(0)} km ignorés · ` : ''}${data.pois.length} arrêts
 </p>
 <table>
 <thead><tr>

@@ -34,6 +34,9 @@ pub struct AnalyzeReq {
     pub corridor_m: Option<f64>,
     #[serde(default)]
     pub kinds: Option<Vec<String>>,
+    /// Ignore POIs in the first N km of the route (familiar home territory).
+    #[serde(default)]
+    pub skip_km: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -56,6 +59,7 @@ pub struct AnalyzeResp {
     pub start_unix: i64,
     pub speed_kmh: f64,
     pub corridor_m: f64,
+    pub skip_km: f64,
     pub pois: Vec<PoiOut>,
     pub route: Vec<KmSample>,
 }
@@ -78,6 +82,7 @@ pub async fn analyze(
     };
     let speed = req.speed_kmh.unwrap_or(22.0).max(5.0);
     let corridor_m = req.corridor_m.unwrap_or(120.0).clamp(20.0, 2_000.0);
+    let skip_km = req.skip_km.unwrap_or(0.0).max(0.0);
 
     let kinds_filter: Option<std::collections::HashSet<String>> = req
         .kinds
@@ -93,7 +98,7 @@ pub async fn analyze(
     let mut out = Vec::new();
     for p in pois {
         let (km, detour) = project_to_route(&raw, &cum, p.lat, p.lon);
-        if detour > corridor_m {
+        if detour > corridor_m || km < skip_km {
             continue;
         }
         let kind_s = p.kind.as_str().to_string();
@@ -130,6 +135,7 @@ pub async fn analyze(
         start_unix: start.timestamp(),
         speed_kmh: speed,
         corridor_m,
+        skip_km,
         pois: out,
         route: route_samples,
     }))
