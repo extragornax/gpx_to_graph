@@ -16,6 +16,8 @@ pub mod pow;
 #[cfg(feature = "server")]
 pub mod ravito;
 #[cfg(feature = "server")]
+pub mod share;
+#[cfg(feature = "server")]
 pub mod strava_stats;
 #[cfg(feature = "server")]
 pub mod toolkit;

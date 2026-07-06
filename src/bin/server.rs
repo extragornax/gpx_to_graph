@@ -2908,6 +2908,15 @@ async fn main() {
             .expect("failed to open ravito cache"),
     );
 
+    // --- Shared GPX links (meteo + ravito) ---
+    let share_db_path = std::env::var("SHARE_DB_PATH").unwrap_or_else(|_| "data/share.db".into());
+    if let Some(parent) = std::path::Path::new(&share_db_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let share_store = std::sync::Arc::new(
+        gpx_to_graph::share::ShareStore::open(&share_db_path).expect("failed to open share store"),
+    );
+
     // --- Col service ---
     let col_db_path = std::env::var("COL_DB_PATH").unwrap_or_else(|_| "data/col.db".into());
     if let Some(parent) = std::path::Path::new(&col_db_path).parent() {
@@ -2973,8 +2982,14 @@ async fn main() {
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(merge_sessions)
         // Nested service routers
-        .nest("/meteo", gpx_to_graph::meteo::router(meteo_cache))
-        .nest("/ravito", gpx_to_graph::ravito::router(ravito_cache))
+        .nest(
+            "/meteo",
+            gpx_to_graph::meteo::router(meteo_cache, share_store.clone()),
+        )
+        .nest(
+            "/ravito",
+            gpx_to_graph::ravito::router(ravito_cache, share_store),
+        )
         .nest("/stats", gpx_to_graph::strava_stats::router())
         .nest("/col", gpx_to_graph::col::router(col_state))
         .nest("/toolkit", gpx_to_graph::toolkit::router())

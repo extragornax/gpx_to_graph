@@ -115,6 +115,13 @@
       <span class="arrow" aria-hidden="true">⟶</span>
     </button>
     <p id="status" class="status"></p>
+    <div id="share-box" class="share-box" hidden>
+      <label for="share-url">Share link <span class="share-note">valid one month</span></label>
+      <div class="share-row">
+        <input type="text" id="share-url" readonly>
+        <button type="button" id="share-copy">Copy</button>
+      </div>
+    </div>
   </div>
 </form>
 
@@ -234,6 +241,20 @@ function initStartTime() {
   $('#start').value = d.toISOString().slice(0, 16);
 }
 
+async function runAnalysis(gpx, start, speed_kmh) {
+  const resp = await fetch(_BASE + '/api/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ gpx, start, speed_kmh }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  const data = await resp.json();
+  lastResp = data;
+  $('#results').hidden = false;
+  document.querySelectorAll('.reveal-late').forEach(el => el.classList.add('in'));
+  render(data);
+}
+
 async function submit(ev) {
   ev.preventDefault();
   const btn = $('#submit');
@@ -241,23 +262,64 @@ async function submit(ev) {
   $('#status').textContent = 'Reading the sky …';
   const upload = $('#upload').files[0];
   try {
-    if (!upload) throw new Error('No GPX file selected.');
-    const gpx = await upload.text();
+    const gpx = upload ? await upload.text() : lastGpx;
+    if (!gpx) throw new Error('No GPX file selected.');
     lastGpx = gpx;
     const local = $('#start').value;
     const start = local ? new Date(local).toISOString() : null;
     const speed_kmh = Number($('#speed').value) || 25;
-    const resp = await fetch(_BASE + '/api/analyze', {
+    await runAnalysis(gpx, start, speed_kmh);
+    $('#status').textContent = '';
+    createShare(gpx, { start, speed_kmh });
+  } catch (e) {
+    $('#status').textContent = String(e.message || e);
+  } finally {
+    btn.classList.remove('loading');
+  }
+}
+
+function showShareLink(id) {
+  const url = location.origin + location.pathname + '?s=' + id;
+  history.replaceState(null, '', location.pathname + '?s=' + id);
+  $('#share-url').value = url;
+  $('#share-box').hidden = false;
+}
+
+async function createShare(gpx, params) {
+  try {
+    const resp = await fetch(_BASE + '/api/share', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ gpx, start, speed_kmh }),
+      body: JSON.stringify({ gpx, params }),
     });
-    if (!resp.ok) throw new Error(await resp.text());
-    const data = await resp.json();
-    lastResp = data;
-    $('#results').hidden = false;
-    document.querySelectorAll('.reveal-late').forEach(el => el.classList.add('in'));
-    render(data);
+    if (!resp.ok) return;
+    const { id } = await resp.json();
+    showShareLink(id);
+  } catch (_) { /* sharing is best-effort; the analysis already rendered */ }
+}
+
+async function loadShare() {
+  const id = new URLSearchParams(location.search).get('s');
+  if (!id) return;
+  const btn = $('#submit');
+  btn.classList.add('loading');
+  $('#status').textContent = 'Loading shared ride …';
+  try {
+    const resp = await fetch(_BASE + '/api/share/' + encodeURIComponent(id));
+    if (!resp.ok) throw new Error('Share link expired or unknown.');
+    const { gpx, params } = await resp.json();
+    lastGpx = gpx;
+    const p = params || {};
+    if (p.start) {
+      const d = new Date(p.start);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      $('#start').value = d.toISOString().slice(0, 16);
+    }
+    if (p.speed_kmh) $('#speed').value = p.speed_kmh;
+    const local = $('#start').value;
+    const start = local ? new Date(local).toISOString() : null;
+    await runAnalysis(gpx, start, Number($('#speed').value) || 25);
+    showShareLink(id);
     $('#status').textContent = '';
   } catch (e) {
     $('#status').textContent = String(e.message || e);
@@ -648,6 +710,18 @@ $('#arrow-opacity').addEventListener('input', function() {
 setToday();
 initStartTime();
 $('#f').addEventListener('submit', submit);
+$('#share-copy').addEventListener('click', async () => {
+  const btn = $('#share-copy');
+  try {
+    await navigator.clipboard.writeText($('#share-url').value);
+  } catch (_) {
+    $('#share-url').select();
+    document.execCommand('copy');
+  }
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+});
+loadShare();
 
 // Fire entrance animations on load.
 requestAnimationFrame(() => {

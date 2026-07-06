@@ -132,6 +132,13 @@
         <span class="btn-label">Plot the run</span>
       </button>
       <p id="status" class="status"></p>
+      <div id="share-box" class="share-box" hidden>
+        <label for="share-url">Lien de partage <span class="share-note">valide 1 mois</span></label>
+        <div class="share-row">
+          <input type="text" id="share-url" readonly>
+          <button type="button" id="share-copy">Copier</button>
+        </div>
+      </div>
     </div>
   </form>
 
@@ -236,6 +243,7 @@ const SEPIA = '#79654a';
 
 let _map = null;
 let _lastData = null;
+let _loadedGpx = null;
 
 function initStart() {
   const d = new Date();
@@ -258,30 +266,91 @@ function setStatus(msg, kind) {
   el.dataset.kind = kind || '';
 }
 
+function formOpts() {
+  const local = $('#start').value;
+  return {
+    start: local ? new Date(local).toISOString() : null,
+    speed_kmh: Number($('#speed').value) || 22,
+    corridor_m: Number($('#corridor').value) || 120,
+    skip_km: Math.max(0, Number($('#skip').value) || 0),
+    kinds: [...document.querySelectorAll('.kind:checked')].map(k => k.value),
+  };
+}
+
+async function runAnalysis(gpx, opts) {
+  const resp = await fetch(_BASE + '/api/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ gpx, ...opts }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  const data = await resp.json();
+  render(data);
+  const results = $('#results');
+  results.hidden = false;
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function submit(ev) {
   ev.preventDefault();
   setStatus('Querying OpenStreetMap…', 'info');
   const upload = $('#upload').files[0];
   try {
-    if (!upload) throw new Error('No GPX file selected.');
-    const gpx = await upload.text();
-    const local = $('#start').value;
-    const start = local ? new Date(local).toISOString() : null;
-    const speed_kmh = Number($('#speed').value) || 22;
-    const corridor_m = Number($('#corridor').value) || 120;
-    const skip_km = Math.max(0, Number($('#skip').value) || 0);
-    const kinds = [...document.querySelectorAll('.kind:checked')].map(k => k.value);
-    const resp = await fetch(_BASE + '/api/analyze', {
+    const gpx = upload ? await upload.text() : _loadedGpx;
+    if (!gpx) throw new Error('No GPX file selected.');
+    _loadedGpx = gpx;
+    const opts = formOpts();
+    await runAnalysis(gpx, opts);
+    setStatus('');
+    createShare(gpx, opts);
+  } catch (e) {
+    setStatus('Error: ' + (e.message || e), 'error');
+  }
+}
+
+function showShareLink(id) {
+  const url = location.origin + location.pathname + '?s=' + id;
+  history.replaceState(null, '', location.pathname + '?s=' + id);
+  $('#share-url').value = url;
+  $('#share-box').hidden = false;
+}
+
+async function createShare(gpx, params) {
+  try {
+    const resp = await fetch(_BASE + '/api/share', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ gpx, start, speed_kmh, corridor_m, kinds, skip_km }),
+      body: JSON.stringify({ gpx, params }),
     });
-    if (!resp.ok) throw new Error(await resp.text());
-    const data = await resp.json();
-    render(data);
-    const results = $('#results');
-    results.hidden = false;
-    results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!resp.ok) return;
+    const { id } = await resp.json();
+    showShareLink(id);
+  } catch (_) { /* sharing is best-effort; the analysis already rendered */ }
+}
+
+async function loadShare() {
+  const id = new URLSearchParams(location.search).get('s');
+  if (!id) return;
+  setStatus('Loading shared route…', 'info');
+  try {
+    const resp = await fetch(_BASE + '/api/share/' + encodeURIComponent(id));
+    if (!resp.ok) throw new Error('Share link expired or unknown.');
+    const { gpx, params } = await resp.json();
+    _loadedGpx = gpx;
+    const p = params || {};
+    if (p.start) {
+      const d = new Date(p.start);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      $('#start').value = d.toISOString().slice(0, 16);
+    }
+    if (p.speed_kmh) $('#speed').value = p.speed_kmh;
+    if (p.corridor_m) $('#corridor').value = p.corridor_m;
+    if (p.skip_km != null) $('#skip').value = p.skip_km;
+    if (Array.isArray(p.kinds)) {
+      document.querySelectorAll('.kind').forEach(k => { k.checked = p.kinds.includes(k.value); });
+    }
+    await runAnalysis(gpx, formOpts());
+    showShareLink(id);
     setStatus('');
   } catch (e) {
     setStatus('Error: ' + (e.message || e), 'error');
@@ -615,6 +684,18 @@ initStart();
 initEditionDate();
 $('#f').addEventListener('submit', submit);
 $('#export-btn').addEventListener('click', exportHtml);
+$('#share-copy').addEventListener('click', async () => {
+  const btn = $('#share-copy');
+  try {
+    await navigator.clipboard.writeText($('#share-url').value);
+  } catch (_) {
+    $('#share-url').select();
+    document.execCommand('copy');
+  }
+  btn.textContent = 'Copié ✓';
+  setTimeout(() => { btn.textContent = 'Copier'; }, 1500);
+});
+loadShare();
 </script>
 <script>
   if ('serviceWorker' in navigator) {

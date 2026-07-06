@@ -13,12 +13,13 @@ use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use weather::WeatherCache;
 
-pub fn router(cache: Arc<WeatherCache>) -> Router {
+pub fn router(cache: Arc<WeatherCache>, shares: Arc<crate::share::ShareStore>) -> Router {
     let state = AppState { cache };
     Router::new()
         .route("/", get(handlers::index))
         .route("/api/analyze", post(handlers::analyze))
         .with_state(state)
+        .merge(crate::share::routes("meteo", shares))
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
 }

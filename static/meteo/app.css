@@ -402,6 +402,49 @@ main {
   min-height: 1em;
 }
 
+/* ---------- Share link ---------- */
+
+.share-box {
+  flex-basis: 100%;
+  border: 1px dashed var(--rule);
+  padding: 0.7rem 0.9rem 0.85rem;
+}
+.share-box label {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.75;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.share-box .share-note { color: var(--carmine); text-transform: none; letter-spacing: 0.03em; }
+.share-row { display: flex; gap: 0.7rem; align-items: stretch; }
+.share-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(10, 31, 59, 0.02);
+  border: 1px solid var(--rule);
+  padding: 0.4rem 0.55rem;
+}
+.share-box .share-row button {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.share-box .share-row button:hover { background: var(--carmine); border-color: var(--carmine); }
+
 /* ---------- Chapter / results ---------- */
 
 .legend {

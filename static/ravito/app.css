@@ -438,6 +438,48 @@ button[type="submit"] .btn-arrow {
   color: var(--red);
 }
 
+/* Share link */
+.share-box {
+  flex-basis: 100%;
+  border: 1.5px dashed var(--ink);
+  padding: 0.75rem 1rem 0.9rem;
+}
+.share-box label {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sepia);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.share-box .share-note { color: var(--red); text-transform: none; letter-spacing: 0.04em; }
+.share-row { display: flex; gap: 0.75rem; align-items: stretch; }
+.share-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: rgba(255, 249, 233, 0.55);
+  border: 0;
+  border-bottom: 1.5px solid var(--ink);
+  padding: 0.35rem 0.5rem;
+}
+.share-row button {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ink);
+  border: 0;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.share-row button:hover { background: var(--red); }
+
 /* ========================= RESULTS ========================= */
 #results {
   display: grid;

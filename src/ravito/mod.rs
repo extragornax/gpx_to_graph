@@ -13,12 +13,13 @@ use overpass::OverpassCache;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
-pub fn router(cache: Arc<OverpassCache>) -> Router {
+pub fn router(cache: Arc<OverpassCache>, shares: Arc<crate::share::ShareStore>) -> Router {
     let state = AppState { cache };
     Router::new()
         .route("/", get(handlers::index))
         .route("/api/analyze", post(handlers::analyze))
         .with_state(state)
+        .merge(crate::share::routes("ravito", shares))
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
 }
