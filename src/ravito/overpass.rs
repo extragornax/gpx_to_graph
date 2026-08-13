@@ -11,6 +11,12 @@ use super::gpx_parse::RawPoint;
 /// and it keeps repeat scrubbing instant even for long rides.
 const CACHE_TTL_SECS: i64 = 7 * 24 * 3600;
 
+/// Grid the point-query bounding box is snapped to, in degrees (~2.2 km of
+/// latitude). Without snapping, every GPS fix would yield a slightly different
+/// bbox — and therefore a fresh Overpass call. Snapped, anything inside the
+/// same cell reuses one cached payload.
+const CACHE_GRID_DEG: f64 = 0.02;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PoiKind {
@@ -113,6 +119,21 @@ impl OverpassCache {
             max_lat + pad_lat,
             max_lon + pad_lon
         );
+        self.fetch_bbox(&bbox_str).await
+    }
+
+    /// Fetch (or load cached) POIs within `radius_m` of a single point — used by
+    /// the "what's around me right now" view. The box is snapped outward to
+    /// [`CACHE_GRID_DEG`] so repeat lookups from the same neighbourhood hit the
+    /// cache; the exact radius filtering happens on distance afterwards.
+    pub async fn pois_near_point(&self, lat: f64, lon: f64, radius_m: f64) -> Result<Vec<Poi>> {
+        let pad_lat = radius_m / 111_000.0;
+        let pad_lon = radius_m / (111_000.0 * lat.to_radians().cos().max(0.1));
+        let bbox_str = snap_bbox(lat - pad_lat, lon - pad_lon, lat + pad_lat, lon + pad_lon);
+        self.fetch_bbox(&bbox_str).await
+    }
+
+    async fn fetch_bbox(&self, bbox_str: &str) -> Result<Vec<Poi>> {
         let key = format!("v2|{}", bbox_str);
 
         let now = chrono::Utc::now().timestamp();
@@ -172,6 +193,19 @@ out center tags;"#,
     }
 }
 
+/// Round the box outward to the caching grid so nearby positions share a key.
+fn snap_bbox(min_lat: f64, min_lon: f64, max_lat: f64, max_lon: f64) -> String {
+    let down = |v: f64| (v / CACHE_GRID_DEG).floor() * CACHE_GRID_DEG;
+    let up = |v: f64| (v / CACHE_GRID_DEG).ceil() * CACHE_GRID_DEG;
+    format!(
+        "{:.4},{:.4},{:.4},{:.4}",
+        down(min_lat),
+        down(min_lon),
+        up(max_lat),
+        up(max_lon)
+    )
+}
+
 fn bbox(raw: &[RawPoint]) -> (f64, f64, f64, f64) {
     let mut min_lat = f64::INFINITY;
     let mut min_lon = f64::INFINITY;
@@ -192,6 +226,37 @@ fn bbox(raw: &[RawPoint]) -> (f64, f64, f64, f64) {
         }
     }
     (min_lat, min_lon, max_lat, max_lon)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snap_bbox;
+
+    #[test]
+    fn snap_bbox_rounds_outward() {
+        // Edges move out to the grid, never in, so the box always covers the request.
+        assert_eq!(
+            snap_bbox(48.851, 2.341, 48.869, 2.359),
+            "48.8400,2.3400,48.8800,2.3600"
+        );
+    }
+
+    #[test]
+    fn snap_bbox_is_stable_within_a_cell() {
+        // Two GPS fixes a few hundred metres apart must produce the same cache key.
+        assert_eq!(
+            snap_bbox(48.851, 2.341, 48.869, 2.359),
+            snap_bbox(48.856, 2.348, 48.867, 2.352)
+        );
+    }
+
+    #[test]
+    fn snap_bbox_handles_negative_coords() {
+        assert_eq!(
+            snap_bbox(-33.871, -70.671, -33.859, -70.659),
+            "-33.8800,-70.6800,-33.8400,-70.6400"
+        );
+    }
 }
 
 fn parse_overpass(body: &str) -> Result<Vec<Poi>> {

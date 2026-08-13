@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e1424">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>autour — what's within reach, right now</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- CSS_PLACEHOLDER -->
+<link rel="stylesheet" href="/static/themes.css">
+<script>document.documentElement.dataset.theme=localStorage.getItem('gpx-theme')||'golden-hour'</script>
+<script src="/static/theme-switcher.js" defer></script>
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="site-nav">
+  <a href="/" class="nav-brand">GPX Tools</a>
+  <a href="/" class="nav-link">Graph</a>
+  <a href="/toolkit" class="nav-link">Toolkit</a>
+  <a href="/meteo" class="nav-link">Meteo</a>
+  <a href="/ravito" class="nav-link">Ravito</a>
+  <a href="/autour" class="nav-link active">Autour</a>
+  <a href="/stats" class="nav-link">Stats</a>
+  <a href="/col" class="nav-link">Col</a>
+  <a href="/trip" class="nav-link">Trip</a>
+</nav>
+
+<main>
+  <header class="masthead">
+    <div class="edition">
+      <span>Nº 002</span>
+      <span>Ici, maintenant</span>
+      <span class="dot">✦</span>
+      <span>Pain · Eau · Café</span>
+      <span class="edition-date" id="ed-date"></span>
+    </div>
+
+    <h1 class="title">
+      <span class="title-main">autour</span><span class="slash">/</span><span class="title-sub">moi</span>
+    </h1>
+
+    <p class="tagline">
+      No trace to upload, no hour to name — one tap and we ask your phone where it
+      stands, then hand you the nearest <em>boulangerie</em>, fountain, grocer and
+      bar-tabac, closest first, each checked against the hours for <em>right now</em>.
+    </p>
+
+    <div class="rule-double"></div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <span class="stamp">Où suis-je ?</span>
+      <span class="stamp-sub">Un seul bouton</span>
+    </div>
+
+    <div class="locate-row">
+      <button type="button" id="locate">
+        <span class="btn-arrow">◎</span>
+        <span class="btn-label">Me localiser</span>
+      </button>
+      <p class="fix" id="fix" hidden></p>
+      <p id="status" class="status"></p>
+    </div>
+
+    <div class="controls" id="controls" hidden>
+      <div class="row2">
+        <div class="field">
+          <label for="radius">
+            <span class="num">①</span> Rayon
+            <span class="val" id="radius-val">2.0 km</span>
+          </label>
+          <input type="range" id="radius" min="500" max="5000" step="250" value="2000">
+        </div>
+        <div class="field">
+          <label for="limit"><span class="num">②</span> Combien</label>
+          <select id="limit">
+            <option value="5">5 plus proches</option>
+            <option value="10" selected>10 plus proches</option>
+            <option value="20">20 plus proches</option>
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="kinds">
+        <legend><span class="num">③</span> Chercher</legend>
+        <label>
+          <input type="checkbox" class="kind" value="bakery" checked>
+          <span class="mark"></span>
+          <span class="kind-label"><span class="glyph">🥐</span>Boulangerie</span>
+        </label>
+        <label>
+          <input type="checkbox" class="kind" value="supermarket" checked>
+          <span class="mark"></span>
+          <span class="kind-label"><span class="glyph">🛒</span>Supermarché</span>
+        </label>
+        <label>
+          <input type="checkbox" class="kind" value="bar_tabac" checked>
+          <span class="mark"></span>
+          <span class="kind-label"><span class="glyph">☕</span>Bar-tabac</span>
+        </label>
+        <label>
+          <input type="checkbox" class="kind" value="fountain" checked>
+          <span class="mark"></span>
+          <span class="kind-label"><span class="glyph">💧</span>Fontaine</span>
+        </label>
+        <label>
+          <input type="checkbox" class="kind" value="cemetery" checked>
+          <span class="mark"></span>
+          <span class="kind-label"><span class="glyph">🪦</span>Cimetière</span>
+        </label>
+      </fieldset>
+
+      <div class="toggle-row">
+        <label>
+          <input type="checkbox" id="open-now" checked>
+          <span class="mark"></span>
+          <span>Ouvert maintenant seulement</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <section id="results" hidden>
+    <article class="cahier">
+      <header class="cahier-head">
+        <div class="cahier-title">
+          <span class="kicker">Au plus près</span>
+          <h2>Closest first</h2>
+        </div>
+        <span class="count" id="count"></span>
+      </header>
+      <ul class="poi-list" id="list"></ul>
+    </article>
+
+    <article class="cahier">
+      <header class="cahier-head">
+        <div class="cahier-title">
+          <span class="kicker">Carte</span>
+          <h2>Around you</h2>
+        </div>
+      </header>
+      <div id="map"></div>
+    </article>
+  </section>
+
+  <footer class="colophon">
+    <span class="col-left">— Fin —</span>
+    <span class="col-mid">Pour les fringales imprévues.</span>
+    <a href="https://buymeacoffee.com/extragornax" target="_blank" rel="noopener" class="bmc-link">Buy me a coffee</a>
+    <span class="col-right">autour/gpx · self-hosted</span>
+  </footer>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const _BASE = location.pathname.replace(/\/$/, '');
+
+const KIND = {
+  bakery:      { glyph: '🥐', label: 'boulangerie', color: '#a46a1c' },
+  supermarket: { glyph: '🛒', label: 'supermarché', color: '#2b261b' },
+  bar_tabac:   { glyph: '☕', label: 'bar-tabac',   color: '#6b2238' },
+  fountain:    { glyph: '💧', label: 'fontaine',    color: '#1b4a8a' },
+  cemetery:    { glyph: '🪦', label: 'cimetière',   color: '#4a5a4a' },
+  other:       { glyph: '•',  label: 'autre',       color: '#79654a' },
+};
+
+const INK = '#0e1424';
+const PAPER = '#f2e9d4';
+const RED = '#b8202a';
+const SEPIA = '#79654a';
+
+let _map = null;
+let _pos = null;      // { lat, lon, accuracy }
+let _pending = null;  // debounce timer
+
+function initEditionDate() {
+  const now = new Date();
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  $('#ed-date').textContent =
+    String(now.getDate()).padStart(2,'0') + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+}
+
+function setStatus(msg, kind) {
+  const el = $('#status');
+  el.textContent = msg || '';
+  el.dataset.kind = kind || '';
+}
+
+function fmtDist(m) {
+  return m < 1000
+    ? Math.round(m) + '<span class="unit-sm">m</span>'
+    : (m / 1000).toFixed(1) + '<span class="unit-sm">km</span>';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function locate() {
+  if (!navigator.geolocation) {
+    setStatus('Ce navigateur ne sait pas se localiser.', 'error');
+    return;
+  }
+  const btn = $('#locate');
+  btn.disabled = true;
+  setStatus('Recherche du signal GPS…', 'info');
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      btn.disabled = false;
+      _pos = { lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy };
+      $('#fix').hidden = false;
+      $('#fix').innerHTML =
+        '<span class="coords">' + _pos.lat.toFixed(5) + ', ' + _pos.lon.toFixed(5) + '</span>' +
+        ' · <span class="acc">±' + Math.round(_pos.accuracy) + ' m</span>';
+      $('#controls').hidden = false;
+      $('#locate .btn-label').textContent = 'Réactualiser ma position';
+      search();
+    },
+    err => {
+      btn.disabled = false;
+      // Each failure mode gets its own wording — "refusée" and "pas de signal"
+      // call for completely different fixes from the rider.
+      const msg =
+        err.code === err.PERMISSION_DENIED
+          ? 'Localisation refusée. Autorise-la dans les réglages du navigateur, puis réessaie.'
+        : err.code === err.POSITION_UNAVAILABLE
+          ? 'Position indisponible — pas de signal GPS ici. Réessaie dehors.'
+        : err.code === err.TIMEOUT
+          ? 'Le GPS a mis trop de temps. Réessaie.'
+          : 'Localisation impossible : ' + (err.message || 'erreur inconnue');
+      setStatus(msg, 'error');
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+}
+
+function opts() {
+  return {
+    radius_m: Number($('#radius').value),
+    limit: Number($('#limit').value),
+    kinds: [...document.querySelectorAll('.kind:checked')].map(k => k.value),
+    open_now: $('#open-now').checked,
+  };
+}
+
+async function search() {
+  if (!_pos) return;
+  const o = opts();
+  if (!o.kinds.length) {
+    setStatus('Coche au moins un genre.', 'error');
+    return;
+  }
+  setStatus('Interrogation d’OpenStreetMap…', 'info');
+  const q = new URLSearchParams({
+    lat: _pos.lat,
+    lon: _pos.lon,
+    radius_m: o.radius_m,
+    limit: o.limit,
+    kinds: o.kinds.join(','),
+    open_now: o.open_now,
+  });
+  try {
+    const resp = await fetch(_BASE + '/api/nearby?' + q.toString());
+    if (!resp.ok) throw new Error(await resp.text());
+    render(await resp.json());
+    setStatus('');
+    $('#results').hidden = false;
+  } catch (e) {
+    setStatus('Error: ' + (e.message || e), 'error');
+  }
+}
+
+/** Controls fire on every drag tick, so coalesce before hitting the network. */
+function searchSoon() {
+  clearTimeout(_pending);
+  _pending = setTimeout(search, 300);
+}
+
+function render(data) {
+  const list = $('#list');
+  list.innerHTML = '';
+  const km = (data.radius_m / 1000).toFixed(1);
+
+  if (!data.pois.length) {
+    $('#count').textContent = '0 trouvé';
+    list.innerHTML = '<li class="empty">Rien dans un rayon de ' + km +
+      ' km. Élargis le rayon, ou décoche « ouvert maintenant ».</li>';
+    renderMap(data);
+    return;
+  }
+  $('#count').textContent = data.pois.length + ' dans ' + km + ' km';
+
+  for (const p of data.pois) {
+    const kind = KIND[p.kind] || KIND.other;
+    const stateLabel =
+      p.status_now === 'open'   ? 'ouvert' :
+      p.status_now === 'closed' ? 'fermé'  : '?';
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <a class="poi-row" target="_blank" rel="noopener"
+         href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}">
+        <span class="poi-glyph">${kind.glyph}</span>
+        <span class="poi-main">
+          <span class="poi-name">${p.name ? escapeHtml(p.name) : '<span class="anon">sans nom</span>'}</span>
+          <span class="poi-meta">
+            <span class="kind-name">${kind.label}</span>
+            ${p.opening_hours ? '<span class="hours">' + escapeHtml(p.opening_hours) + '</span>' : ''}
+          </span>
+        </span>
+        <span class="poi-right">
+          <span class="poi-dist">
+            <span class="arrow" style="transform:rotate(${p.bearing_deg.toFixed(0)}deg)">↑</span>
+            ${fmtDist(p.distance_m)}
+          </span>
+          <span class="state ${p.status_now}">${stateLabel}</span>
+        </span>
+      </a>`;
+    list.appendChild(li);
+  }
+  renderMap(data);
+}
+
+function renderMap(data) {
+  if (_map) { _map.remove(); _map = null; }
+  _map = L.map('map', { scrollWheelZoom: false }).setView([data.lat, data.lon], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(_map);
+
+  L.circle([data.lat, data.lon], {
+    radius: data.radius_m, color: INK, weight: 1, dashArray: '4 5', fill: false,
+  }).addTo(_map);
+  L.circleMarker([data.lat, data.lon], {
+    radius: 8, color: PAPER, fillColor: RED, fillOpacity: 1, weight: 2.5,
+  }).bindPopup('Vous êtes ici').addTo(_map);
+
+  const pts = [[data.lat, data.lon]];
+  for (const p of data.pois) {
+    const kind = KIND[p.kind] || KIND.other;
+    let fillColor = kind.color;
+    let borderColor = INK;
+    if (p.status_now === 'closed') { fillColor = PAPER; borderColor = RED; }
+    else if (p.status_now === 'unknown') { fillColor = PAPER; borderColor = SEPIA; }
+
+    const stateLabel =
+      p.status_now === 'open'   ? 'ouvert' :
+      p.status_now === 'closed' ? 'fermé'  : '?';
+    let popup = '<strong>' + escapeHtml(p.name || kind.label) + '</strong><br>'
+      + kind.glyph + ' ' + kind.label + ' — ' + Math.round(p.distance_m) + ' m<br>'
+      + '<em>' + stateLabel + '</em>';
+    if (p.opening_hours) popup += '<br><small>' + escapeHtml(p.opening_hours) + '</small>';
+
+    L.circleMarker([p.lat, p.lon], {
+      radius: 6, color: borderColor, fillColor: fillColor, fillOpacity: 1, weight: 1.5,
+    }).bindPopup(popup).addTo(_map);
+    pts.push([p.lat, p.lon]);
+  }
+  if (pts.length > 1) _map.fitBounds(L.latLngBounds(pts), { padding: [30, 30] });
+}
+
+initEditionDate();
+$('#locate').addEventListener('click', locate);
+$('#radius').addEventListener('input', () => {
+  $('#radius-val').textContent = (Number($('#radius').value) / 1000).toFixed(1) + ' km';
+  searchSoon();
+});
+$('#limit').addEventListener('change', search);
+$('#open-now').addEventListener('change', search);
+document.querySelectorAll('.kind').forEach(k => k.addEventListener('change', searchSoon));
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(){});
+    });
+  }
+</script>
+<img src="https://tally.extragornax.fr/t/gpx" alt="" width="1" height="1" style="position:absolute;opacity:0" referrerpolicy="no-referrer-when-downgrade" />
+</body>
+</html>

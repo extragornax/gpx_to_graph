@@ -8,6 +8,8 @@ use plotters::prelude::*;
 #[cfg(feature = "server")]
 pub mod auth;
 #[cfg(feature = "server")]
+pub mod autour;
+#[cfg(feature = "server")]
 pub mod col;
 #[cfg(feature = "server")]
 pub mod meteo;

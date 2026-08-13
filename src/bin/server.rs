@@ -381,6 +381,7 @@ const FORM_HTML: &str = r##"<!DOCTYPE html>
     <a href="/toolkit" class="nav-link">Toolkit</a>
     <a href="/meteo" class="nav-link">Meteo</a>
     <a href="/ravito" class="nav-link">Ravito</a>
+    <a href="/autour" class="nav-link">Autour</a>
     <a href="/stats" class="nav-link">Stats</a>
     <a href="/col" class="nav-link">Col</a>
     <a href="/trip" class="nav-link">Trip</a>
@@ -2988,8 +2989,9 @@ async fn main() {
         )
         .nest(
             "/ravito",
-            gpx_to_graph::ravito::router(ravito_cache, share_store),
+            gpx_to_graph::ravito::router(ravito_cache.clone(), share_store),
         )
+        .nest("/autour", gpx_to_graph::autour::router(ravito_cache))
         .nest("/stats", gpx_to_graph::strava_stats::router())
         .nest("/col", gpx_to_graph::col::router(col_state))
         .nest("/toolkit", gpx_to_graph::toolkit::router())
